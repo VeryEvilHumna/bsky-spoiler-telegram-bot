@@ -103,7 +103,7 @@ func handleSpoilerCommand(ctx context.Context, b *bot.Bot, msg *models.Message, 
 
 	did, err := bskyClient.ResolveToDID(ctx, parsed.Authority)
 	if err != nil {
-		log.Printf("resolve DID: %v", err)
+		log.Printf("resolve DID: %v", err.Error())
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: msg.Chat.ID,
 			Text:   "Failed to resolve Bluesky profile.",
