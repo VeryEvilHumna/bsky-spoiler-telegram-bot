@@ -27,6 +27,9 @@ go.work.sum
 # env file
 .env
 
+# gdstore database
+message_metadata.db
+
 # Editor/IDE
 # .idea/
 # .vscode/

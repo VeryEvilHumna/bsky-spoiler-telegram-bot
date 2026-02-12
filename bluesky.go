@@ -11,7 +11,7 @@ import (
 	"github.com/bluesky-social/indigo/xrpc"
 )
 
-var bskyURLRegex = regexp.MustCompile(`https?://bsky\.app/profile/([a-zA-Z0-9._:%-]+)/post/([a-zA-Z0-9]+)`)
+var bskyURLRegex = regexp.MustCompile(`https?://(?:bsky|fxbsky|vxbsky|bskye|bskyx|bsyy)\.app/profile/([a-zA-Z0-9._:%-]+)/post/([a-zA-Z0-9]+)`)
 
 type ParsedBlueskyURL struct {
 	Authority   string
@@ -40,7 +40,7 @@ func NewBlueskyClient() *BlueskyClient {
 func ParseBlueskyURL(text string) (*ParsedBlueskyURL, error) {
 	m := bskyURLRegex.FindStringSubmatch(text)
 	if m == nil {
-		return nil, fmt.Errorf("no bsky.app URL found")
+		return nil, fmt.Errorf("no Bluesky post URL found")
 	}
 	return &ParsedBlueskyURL{
 		Authority:   m[1],
