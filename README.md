@@ -15,7 +15,9 @@ This bot listens for the `/spoiler` command followed by a Bluesky post URL. It f
 - Supports multiple images in the post
 - Supports multiple embed domains (bsky.app, fxbsky.app, vxbsky.app, bskye.app, bskyx.app, bsyy.app)
 - Automatic deletion of the command message (requires permission to delete messages in chat)
-- Reaction notifications: Get DM notifications when someone reacts to your spoilered posts
+- Smart reaction notifications: Get silent DM notifications when someone reacts to your spoilered posts
+  - Updates existing notification if it's still relevant
+  - Shows "reacted and removed" when users unreact, auto-deletes after 30s if no new reaction
 - Janky error handling with user-friendly messages
 
 ## Requirements
@@ -76,7 +78,9 @@ The bot will:
 - Fetch images from the Bluesky post
 - Send them as spoiler media in the chat
 - Delete the original command message (requires permission to delete messages in chat)
-- Send you a DM notification when someone reacts to your spoilered post (with a link to jump to the message)
+- Send you silent DM notifications when someone reacts to your spoilered post
+  - Notifications update intelligently (edits if still last message, sends new otherwise)
+  - When users unreact: shows "reacted and removed", auto-deletes after 30s if no new reaction
 
 ## Dependencies
 
