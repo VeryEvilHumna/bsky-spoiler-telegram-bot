@@ -2,7 +2,7 @@
 
 A Telegram bot that gets images from bluesky post and sends them spoilered in Telegram chats.
 
-Hosted version available: t.me/bskyWithSpoilerBot. Just add it in your group and give permission to delete messages
+Hosted version available: [t.me/bskyWithSpoilerBot](https://t.me/bskyWithSpoilerBot). Just add it in your group and give permission to delete messages
 
 ## Description
 
