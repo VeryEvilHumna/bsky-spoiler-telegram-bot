@@ -92,6 +92,7 @@ This bot fetches images from Bluesky posts and sends them as spoilered media in 
 — Works with "private" Bluesky profiles
 — Supports multiple images per post
 — Optional content warning text appended after the link
+— Post text shown as a collapsible spoiler blockquote
 — Automatically deletes command messages (requires delete permission)
 — Sends reaction notifications to your DM when someone reacts to your spoilered posts
 
@@ -192,9 +193,9 @@ func handleSpoilerCommand(ctx context.Context, b *bot.Bot, msg *models.Message, 
 	}
 
 	atURI := fmt.Sprintf("at://%s/app.bsky.feed.post/%s", did, parsed.Rkey)
-	images, err := bskyClient.FetchPostImages(ctx, atURI)
+	postData, err := bskyClient.FetchPost(ctx, atURI)
 	if err != nil {
-		log.Printf("fetch images: %v", err)
+		log.Printf("fetch post: %v", err)
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: msg.Chat.ID,
 			Text:   "Failed to fetch post images.",
@@ -204,6 +205,8 @@ func handleSpoilerCommand(ctx context.Context, b *bot.Bot, msg *models.Message, 
 		})
 		return
 	}
+	images := postData.Images
+	postText := postData.Text
 
 	if len(images) == 0 {
 		_, err = b.SendMessage(ctx, &bot.SendMessageParams{
@@ -223,7 +226,7 @@ func handleSpoilerCommand(ctx context.Context, b *bot.Bot, msg *models.Message, 
 		sentMsg, err := b.SendPhoto(ctx, &bot.SendPhotoParams{
 			ChatID:                msg.Chat.ID,
 			Photo:                 &models.InputFileString{Data: images[0].Fullsize},
-			Caption:               buildCaption(msg.From.FirstName, msg.From.Username, parsed.OriginalURL, cwText),
+			Caption:               buildCaption(msg.From.FirstName, msg.From.Username, parsed.OriginalURL, cwText, postText),
 			ParseMode:             models.ParseModeHTML,
 			HasSpoiler:            true,
 			ShowCaptionAboveMedia: true,
@@ -262,7 +265,7 @@ func handleSpoilerCommand(ctx context.Context, b *bot.Bot, msg *models.Message, 
 			ShowCaptionAboveMedia: true,
 		}
 		if i == 0 {
-			p.Caption = buildCaption(msg.From.FirstName, msg.From.Username, parsed.OriginalURL, cwText)
+			p.Caption = buildCaption(msg.From.FirstName, msg.From.Username, parsed.OriginalURL, cwText, postText)
 			p.ParseMode = models.ParseModeHTML
 		}
 		media[i] = p
@@ -535,7 +538,7 @@ func handleMessageReaction(ctx context.Context, b *bot.Bot, reaction *models.Mes
 	storeNotificationMetadata(metadata.UserID, reaction.Chat.ID, reaction.MessageID, newNotificationMeta)
 }
 
-func buildCaption(firstName, username, originalURL, cwText string) string {
+func buildCaption(firstName, username, originalURL, cwText, postText string) string {
 	body := fmt.Sprintf(
 		`<a href="%s">%s</a> (%s) sent:`+"\n%s",
 		"t.me/"+username,
@@ -543,10 +546,16 @@ func buildCaption(firstName, username, originalURL, cwText string) string {
 		"@"+username,
 		originalURL,
 	)
-	if cwText == "" {
-		return body
+	if cwText != "" {
+		body = fmt.Sprintf("<blockquote><b>CW: %s</b></blockquote>", html.EscapeString(cwText)) + body
 	}
-	return fmt.Sprintf("<blockquote><b>CW: %s</b></blockquote>", html.EscapeString(cwText)) + body
+	if postText != "" {
+		body += fmt.Sprintf(
+			"\n<blockquote expandable>===\n===   Show post text (tap)\n===\n%s</blockquote>",
+			html.EscapeString(postText),
+		)
+	}
+	return body
 }
 
 func indexOf(s string, b byte) int {

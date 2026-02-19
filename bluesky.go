@@ -25,6 +25,11 @@ type ImageInfo struct {
 	Alt      string
 }
 
+type PostData struct {
+	Images []ImageInfo
+	Text   string
+}
+
 type BlueskyClient struct {
 	xrpc      *xrpc.Client
 	directory identity.Directory
@@ -64,7 +69,7 @@ func (c *BlueskyClient) ResolveToDID(ctx context.Context, authority string) (str
 	return ident.DID.String(), nil
 }
 
-func (c *BlueskyClient) FetchPostImages(ctx context.Context, atURI string) ([]ImageInfo, error) {
+func (c *BlueskyClient) FetchPost(ctx context.Context, atURI string) (*PostData, error) {
 	resp, err := bsky.FeedGetPosts(ctx, c.xrpc, []string{atURI})
 	if err != nil {
 		return nil, fmt.Errorf("fetch post: %w", err)
@@ -72,7 +77,14 @@ func (c *BlueskyClient) FetchPostImages(ctx context.Context, atURI string) ([]Im
 	if len(resp.Posts) == 0 {
 		return nil, fmt.Errorf("post not found")
 	}
-	return extractImages(resp.Posts[0]), nil
+	post := resp.Posts[0]
+	data := &PostData{
+		Images: extractImages(post),
+	}
+	if feedPost, ok := post.Record.Val.(*bsky.FeedPost); ok {
+		data.Text = feedPost.Text
+	}
+	return data, nil
 }
 
 func extractImages(post *bsky.FeedDefs_PostView) []ImageInfo {

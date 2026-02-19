@@ -16,6 +16,7 @@ This bot listens for the `/spoiler` command followed by a Bluesky post URL. It f
 - Supports multiple embed domains (bsky.app, fxbsky.app, vxbsky.app, bskye.app, bskyx.app, bsyy.app)
 - Automatic deletion of the command message (requires permission to delete messages in chat)
 - Optional content warning text appended after the post link in the caption
+- Post text revealed as a collapsible spoiler blockquote — tap to expand and see what the post said
 - Smart reaction notifications: Get silent DM notifications when someone reacts to your spoilered posts
   - Updates existing notification if it's still relevant
   - Shows "reacted and removed" when users unreact, auto-deletes after 30s if no new reaction
@@ -83,7 +84,7 @@ The bot will:
 
 - React with a 👌 emoji to acknowledge the command
 - Fetch images from the Bluesky post
-- Send them as spoiler media in the chat
+- Send them as spoiler media in the chat, with the post text attached as a collapsible blockquote that somehow resembles a spoiler from websites like forums
 - Delete the original command message (requires permission to delete messages in chat)
 - Send you silent DM notifications when someone reacts to your spoilered post
   - Notifications update intelligently (edits if still last message, sends new otherwise)
