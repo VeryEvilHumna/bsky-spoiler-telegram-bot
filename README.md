@@ -1,6 +1,6 @@
-# Bluesky Inline Spoiler Bot
+# bsky-spoiler-telegram-bot
 
-A Telegram bot that allows users to share Bluesky post images as inline spoilers in Telegram chats.
+A Telegram bot that gets images from bluesky post and sends them spoilered in Telegram chats.
 
 ## Description
 
