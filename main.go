@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"log"
 	"os"
 	"os/signal"
@@ -77,10 +78,11 @@ func handleStartCommand(ctx context.Context, b *bot.Bot, msg *models.Message) {
 This bot fetches images from Bluesky posts and sends them as spoilered media in Telegram.
 
 <b>Usage:</b>
-<code>/spoiler &lt;Bluesky post URL&gt;</code>
+<code>/spoiler &lt;Bluesky post URL&gt; [content warning]</code>
 
-<b>Example:</b>
+<b>Examples:</b>
 <code>/spoiler https://bsky.app/profile/username.bsky.social/post/abc123</code>
+<code>/spoiler https://bsky.app/profile/username.bsky.social/post/abc123 body horror</code>
 
 <b>Supported domains:</b>
 — bsky.app, fxbsky.app, vxbsky.app
@@ -89,6 +91,7 @@ This bot fetches images from Bluesky posts and sends them as spoilered media in 
 <b>Features:</b>
 — Works with "private" Bluesky profiles
 — Supports multiple images per post
+— Optional content warning text appended after the link
 — Automatically deletes command messages (requires delete permission)
 — Sends reaction notifications to your DM when someone reacts to your spoilered posts
 
@@ -122,7 +125,7 @@ func handleSpoilerCommand(ctx context.Context, b *bot.Bot, msg *models.Message, 
 	if utf8.RuneCountInString(arg) == 0 {
 		_, err := b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID:    msg.Chat.ID,
-			Text:      "Usage: ```command\n" + bot.EscapeMarkdown("/spoiler <bsky.app post URL>") + "```",
+			Text:      "Usage: ```command\n" + bot.EscapeMarkdown("/spoiler <bsky.app post URL> [content warning]") + "```",
 			ParseMode: models.ParseModeMarkdown,
 			ReplyParameters: &models.ReplyParameters{
 				MessageID: msg.ID,
@@ -135,6 +138,13 @@ func handleSpoilerCommand(ctx context.Context, b *bot.Bot, msg *models.Message, 
 	}
 
 	parsed, err := ParseBlueskyURL(arg)
+	var cwText string
+	if err == nil {
+		urlIdx := strings.Index(arg, parsed.OriginalURL)
+		if urlIdx >= 0 {
+			cwText = trimSpace(arg[urlIdx+len(parsed.OriginalURL):])
+		}
+	}
 	if err != nil {
 		_, err = b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: msg.Chat.ID,
@@ -211,15 +221,9 @@ func handleSpoilerCommand(ctx context.Context, b *bot.Bot, msg *models.Message, 
 
 	if len(images) == 1 {
 		sentMsg, err := b.SendPhoto(ctx, &bot.SendPhotoParams{
-			ChatID: msg.Chat.ID,
-			Photo:  &models.InputFileString{Data: images[0].Fullsize},
-			Caption: fmt.Sprintf(
-				`<a href="%s">%s</a> (%s) sent:`+"\n%s",
-				"t.me/"+msg.From.Username,
-				msg.From.FirstName,
-				"@"+msg.From.Username,
-				parsed.OriginalURL,
-			),
+			ChatID:                msg.Chat.ID,
+			Photo:                 &models.InputFileString{Data: images[0].Fullsize},
+			Caption:               buildCaption(msg.From.FirstName, msg.From.Username, parsed.OriginalURL, cwText),
 			ParseMode:             models.ParseModeHTML,
 			HasSpoiler:            true,
 			ShowCaptionAboveMedia: true,
@@ -258,13 +262,7 @@ func handleSpoilerCommand(ctx context.Context, b *bot.Bot, msg *models.Message, 
 			ShowCaptionAboveMedia: true,
 		}
 		if i == 0 {
-			p.Caption = fmt.Sprintf(
-				`<a href="%s">%s</a> (%s) sent:`+"\n%s",
-				"t.me/"+msg.From.Username,
-				msg.From.FirstName,
-				"@"+msg.From.Username,
-				parsed.OriginalURL,
-			)
+			p.Caption = buildCaption(msg.From.FirstName, msg.From.Username, parsed.OriginalURL, cwText)
 			p.ParseMode = models.ParseModeHTML
 		}
 		media[i] = p
@@ -535,6 +533,20 @@ func handleMessageReaction(ctx context.Context, b *bot.Bot, reaction *models.Mes
 		RemovedEmojis:     nil,
 	}
 	storeNotificationMetadata(metadata.UserID, reaction.Chat.ID, reaction.MessageID, newNotificationMeta)
+}
+
+func buildCaption(firstName, username, originalURL, cwText string) string {
+	body := fmt.Sprintf(
+		`<a href="%s">%s</a> (%s) sent:`+"\n%s",
+		"t.me/"+username,
+		firstName,
+		"@"+username,
+		originalURL,
+	)
+	if cwText == "" {
+		return body
+	}
+	return fmt.Sprintf("<blockquote><b>CW: %s</b></blockquote>", html.EscapeString(cwText)) + body
 }
 
 func indexOf(s string, b byte) int {

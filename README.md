@@ -15,6 +15,7 @@ This bot listens for the `/spoiler` command followed by a Bluesky post URL. It f
 - Supports multiple images in the post
 - Supports multiple embed domains (bsky.app, fxbsky.app, vxbsky.app, bskye.app, bskyx.app, bsyy.app)
 - Automatic deletion of the command message (requires permission to delete messages in chat)
+- Optional content warning text appended after the post link in the caption
 - Smart reaction notifications: Get silent DM notifications when someone reacts to your spoilered posts
   - Updates existing notification if it's still relevant
   - Shows "reacted and removed" when users unreact, auto-deletes after 30s if no new reaction
@@ -64,12 +65,18 @@ This bot listens for the `/spoiler` command followed by a Bluesky post URL. It f
 
 1. Add the bot to your Telegram chat or group.
 2. Ensure the bot has permission to delete messages (for automatic cleanup).
-3. Use the command: `/spoiler <Bluesky post URL>`
+3. Use the command: `/spoiler <Bluesky post URL> [content warning]`
 
-Example:
+Example (no content warning):
 
 ```
 /spoiler https://bsky.app/profile/username.bsky.social/post/abc123def456
+```
+
+Example (with content warning):
+
+```
+/spoiler https://bsky.app/profile/username.bsky.social/post/abc123def456 body horror
 ```
 
 The bot will:
