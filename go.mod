@@ -9,6 +9,8 @@ require (
 )
 
 require (
+	github.com/TwiN/gocache v1.2.4 // indirect
+	github.com/TwinProduction/gdstore v0.1.6 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/earthboundkid/versioninfo/v2 v2.24.1 // indirect
@@ -54,6 +56,7 @@ require (
 	github.com/whyrusleeping/cbor-gen v0.2.1-0.20241030202151-b7a6831be65e // indirect
 	gitlab.com/yawning/secp256k1-voi v0.0.0-20230925100816-f2616030848b // indirect
 	gitlab.com/yawning/tuplehash v0.0.0-20230713102510-df83abbf9a02 // indirect
+	go.etcd.io/bbolt v1.3.5 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.46.1 // indirect
 	go.opentelemetry.io/otel v1.21.0 // indirect
 	go.opentelemetry.io/otel/metric v1.21.0 // indirect
