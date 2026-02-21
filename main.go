@@ -410,7 +410,7 @@ func buildCaption(firstName, username, originalURL, cwText, postText string) str
 	}
 	if postText != "" {
 		body += fmt.Sprintf(
-			"\n<blockquote expandable>===\n===   Show post text (tap)\n===\n%s</blockquote>",
+			"\n<blockquote expandable>===\n===   Show post text (tap)\n===\n\n%s</blockquote>",
 			html.EscapeString(postText),
 		)
 	}
