@@ -91,6 +91,10 @@ func main() {
 }
 
 func handleStartCommand(ctx context.Context, b *bot.Bot, msg *models.Message) {
+	if !(msg.Chat.Type == "private") {
+		return
+	}
+
 	welcomeText := `👋 Welcome to Bluesky Spoiler Bot!
 
 This bot fetches images from Bluesky posts and sends them as spoilered media in Telegram.
