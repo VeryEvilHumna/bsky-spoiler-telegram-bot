@@ -50,7 +50,11 @@ func main() {
 	})
 
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/spoiler", bot.MatchTypePrefix, func(ctx context.Context, b *bot.Bot, update *models.Update) {
-		handleSpoilerCommand(ctx, b, update.Message, bskyClient)
+		handleMediaCommand(ctx, b, update.Message, bskyClient, true)
+	})
+
+	b.RegisterHandler(bot.HandlerTypeMessageText, "/nospoiler", bot.MatchTypePrefix, func(ctx context.Context, b *bot.Bot, update *models.Update) {
+		handleMediaCommand(ctx, b, update.Message, bskyClient, false)
 	})
 
 	b.RegisterHandlerMatchFunc(func(update *models.Update) bool {
@@ -73,10 +77,12 @@ This bot fetches images from Bluesky posts and sends them as spoilered media in 
 
 <b>Usage:</b>
 <code>/spoiler &lt;Bluesky post URL&gt; [content warning]</code>
+<code>/nospoiler &lt;Bluesky post URL&gt; [content warning]</code>
 
 <b>Examples:</b>
 <code>/spoiler https://bsky.app/profile/username.bsky.social/post/abc123</code>
 <code>/spoiler https://bsky.app/profile/username.bsky.social/post/abc123 body horror</code>
+<code>/nospoiler https://bsky.app/profile/username.bsky.social/post/abc123</code>
 
 <b>Supported domains:</b>
 — bsky.app, fxbsky.app, vxbsky.app
@@ -87,6 +93,7 @@ This bot fetches images from Bluesky posts and sends them as spoilered media in 
 — Supports multiple images per post
 — Optional content warning text appended after the link
 — Post text shown as a collapsible spoiler blockquote
+— <code>/nospoiler</code> sends media without blur, text still collapsed
 — Automatically deletes command messages (requires delete permission)
 — Sends reaction notifications to your DM when someone reacts to your spoilered posts
 
@@ -102,25 +109,34 @@ This bot fetches images from Bluesky posts and sends them as spoilered media in 
 	}
 }
 
-func handleSpoilerCommand(ctx context.Context, b *bot.Bot, msg *models.Message, bskyClient *BlueskyClient) {
-	text := msg.Text
+func parseCommandArg(text string) string {
+	// Strip command (everything up to and including the first word)
 	arg := ""
-	if len(text) > 8 {
-		arg = text[8:]
+	if idx := indexOf(text, ' '); idx >= 0 {
+		arg = text[idx+1:]
 	}
+	// Strip bot username mention (e.g. @BotName) if present
 	if len(arg) > 0 && arg[0] == '@' {
 		if idx := indexOf(arg, ' '); idx >= 0 {
-			arg = arg[idx:]
+			arg = arg[idx+1:]
 		} else {
 			arg = ""
 		}
 	}
-	arg = trimSpace(arg)
+	return trimSpace(arg)
+}
+
+func handleMediaCommand(ctx context.Context, b *bot.Bot, msg *models.Message, bskyClient *BlueskyClient, hasSpoiler bool) {
+	arg := parseCommandArg(msg.Text)
 
 	if utf8.RuneCountInString(arg) == 0 {
+		cmd := "/spoiler"
+		if !hasSpoiler {
+			cmd = "/nospoiler"
+		}
 		_, err := b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID:    msg.Chat.ID,
-			Text:      "Usage: ```command\n" + bot.EscapeMarkdown("/spoiler <bsky.app post URL> [content warning]") + "```",
+			Text:      "Usage: ```command\n" + bot.EscapeMarkdown(cmd+" <bsky.app post URL> [content warning]") + "```",
 			ParseMode: models.ParseModeMarkdown,
 			ReplyParameters: &models.ReplyParameters{
 				MessageID: msg.ID,
@@ -158,7 +174,7 @@ func handleSpoilerCommand(ctx context.Context, b *bot.Bot, msg *models.Message, 
 		ChatID:    msg.Chat.ID,
 		MessageID: msg.ID,
 		Reaction: []models.ReactionType{
-			models.ReactionType{
+			{
 				Type: models.ReactionTypeTypeEmoji,
 				ReactionTypeEmoji: &models.ReactionTypeEmoji{
 					Emoji: "👌",
@@ -167,7 +183,6 @@ func handleSpoilerCommand(ctx context.Context, b *bot.Bot, msg *models.Message, 
 			},
 		},
 	})
-
 	if err != nil {
 		log.Printf("SetMessageReaction: %v", err)
 		return
@@ -199,11 +214,8 @@ func handleSpoilerCommand(ctx context.Context, b *bot.Bot, msg *models.Message, 
 		})
 		return
 	}
-	images := postData.Images
-	video := postData.Video
-	postText := postData.Text
 
-	if len(images) == 0 && video == nil {
+	if len(postData.Images) == 0 && postData.Video == nil {
 		_, err = b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: msg.Chat.ID,
 			Text:   "No images or video found in that post.",
@@ -217,83 +229,76 @@ func handleSpoilerCommand(ctx context.Context, b *bot.Bot, msg *models.Message, 
 		return
 	}
 
-	if video != nil {
-		handleVideoPost(ctx, b, msg, video, parsed.OriginalURL, cwText, postText)
+	caption := buildCaption(msg.From.FirstName, msg.From.Username, parsed.OriginalURL, cwText, postData.Text)
+
+	if postData.Video != nil {
+		handleVideoPost(ctx, b, msg, postData.Video, caption, hasSpoiler)
 		return
 	}
+
+	handleImagePost(ctx, b, msg, postData.Images, caption, hasSpoiler)
+}
+
+func handleImagePost(ctx context.Context, b *bot.Bot, msg *models.Message, images []ImageInfo, caption string, hasSpoiler bool) {
+	var sentMsgIDs []int
 
 	if len(images) == 1 {
 		sentMsg, err := b.SendPhoto(ctx, &bot.SendPhotoParams{
 			ChatID:                msg.Chat.ID,
 			Photo:                 &models.InputFileString{Data: images[0].Fullsize},
-			Caption:               buildCaption(msg.From.FirstName, msg.From.Username, parsed.OriginalURL, cwText, postText),
+			Caption:               caption,
 			ParseMode:             models.ParseModeHTML,
-			HasSpoiler:            true,
+			HasSpoiler:            hasSpoiler,
 			ShowCaptionAboveMedia: true,
 		})
 		if err != nil {
 			log.Printf("SendPhoto: %v", err)
 			return
 		}
-
-		// Store message metadata for reaction handling
-		storeMessageMetadata(msg.Chat.ID, sentMsg.ID, msg.From.ID)
-
-		_, err = b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-			ChatID:    msg.Chat.ID,
-			MessageID: msg.ID,
+		sentMsgIDs = []int{sentMsg.ID}
+	} else {
+		media := make([]models.InputMedia, len(images))
+		for i, img := range images {
+			p := &models.InputMediaPhoto{
+				Media:                 img.Fullsize,
+				HasSpoiler:            hasSpoiler,
+				ShowCaptionAboveMedia: true,
+			}
+			if i == 0 {
+				p.Caption = caption
+				p.ParseMode = models.ParseModeHTML
+			}
+			media[i] = p
+		}
+		sentMsgs, err := b.SendMediaGroup(ctx, &bot.SendMediaGroupParams{
+			ChatID: msg.Chat.ID,
+			Media:  media,
 		})
 		if err != nil {
-			log.Println("Can't delete sender's message, does bot have permission to delete messages?", err)
+			log.Println("Can't send media group: ", err)
 			b.SendMessage(ctx, &bot.SendMessageParams{
 				ChatID: msg.Chat.ID,
-				Text: "Can't delete sender's message, does bot have permission to delete messages?" +
+				Text: "Can't send media group: " +
 					"```error\n" +
 					err.Error() +
 					"```",
 				ParseMode: models.ParseModeMarkdown,
 			})
+			return
 		}
-		return
-	}
-
-	media := make([]models.InputMedia, len(images))
-	for i, img := range images {
-		p := &models.InputMediaPhoto{
-			Media:                 img.Fullsize,
-			HasSpoiler:            true,
-			ShowCaptionAboveMedia: true,
+		for _, sentMsg := range sentMsgs {
+			sentMsgIDs = append(sentMsgIDs, sentMsg.ID)
 		}
-		if i == 0 {
-			p.Caption = buildCaption(msg.From.FirstName, msg.From.Username, parsed.OriginalURL, cwText, postText)
-			p.ParseMode = models.ParseModeHTML
-		}
-		media[i] = p
-	}
-	sentMsgs, err := b.SendMediaGroup(ctx, &bot.SendMediaGroupParams{
-		ChatID: msg.Chat.ID,
-		Media:  media,
-	})
-
-	if err != nil {
-		log.Println("Can't send media group: ", err)
-		b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: msg.Chat.ID,
-			Text: "Can't send media group: " +
-				"```error\n" +
-				err.Error() +
-				"```",
-			ParseMode: models.ParseModeMarkdown,
-		})
-		return
 	}
 
-	// Store message metadata for all messages in the group
-	for _, sentMsg := range sentMsgs {
-		storeMessageMetadata(msg.Chat.ID, sentMsg.ID, msg.From.ID)
+	for _, id := range sentMsgIDs {
+		storeMessageMetadata(msg.Chat.ID, id, msg.From.ID)
 	}
+	deleteCommandMessage(ctx, b, msg)
+}
 
-	_, err = b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+func deleteCommandMessage(ctx context.Context, b *bot.Bot, msg *models.Message) {
+	_, err := b.DeleteMessage(ctx, &bot.DeleteMessageParams{
 		ChatID:    msg.Chat.ID,
 		MessageID: msg.ID,
 	})
@@ -310,7 +315,7 @@ func handleSpoilerCommand(ctx context.Context, b *bot.Bot, msg *models.Message, 
 	}
 }
 
-func handleVideoPost(ctx context.Context, b *bot.Bot, msg *models.Message, video *VideoInfo, originalURL, cwText, postText string) {
+func handleVideoPost(ctx context.Context, b *bot.Bot, msg *models.Message, video *VideoInfo, caption string, hasSpoiler bool) {
 	// Send progress indicator
 	progressMsg, err := b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: msg.Chat.ID,
@@ -386,14 +391,12 @@ func handleVideoPost(ctx context.Context, b *bot.Bot, msg *models.Message, video
 	}
 	defer f.Close()
 
-	caption := buildCaption(msg.From.FirstName, msg.From.Username, originalURL, cwText, postText)
-
 	sentMsg, err := b.SendVideo(ctx, &bot.SendVideoParams{
 		ChatID:                msg.Chat.ID,
 		Video:                 &models.InputFileUpload{Filename: "video.mp4", Data: f},
 		Caption:               caption,
 		ParseMode:             models.ParseModeHTML,
-		HasSpoiler:            true,
+		HasSpoiler:            hasSpoiler,
 		ShowCaptionAboveMedia: true,
 	})
 	if err != nil {
@@ -411,14 +414,7 @@ func handleVideoPost(ctx context.Context, b *bot.Bot, msg *models.Message, video
 
 	storeMessageMetadata(msg.Chat.ID, sentMsg.ID, msg.From.ID)
 	deleteProgress()
-
-	_, err = b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-		ChatID:    msg.Chat.ID,
-		MessageID: msg.ID,
-	})
-	if err != nil {
-		log.Println("Can't delete sender's message:", err)
-	}
+	deleteCommandMessage(ctx, b, msg)
 }
 
 func storeMessageMetadata(chatID int64, messageID int, userID int64) {
