@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -198,12 +200,13 @@ func handleSpoilerCommand(ctx context.Context, b *bot.Bot, msg *models.Message, 
 		return
 	}
 	images := postData.Images
+	video := postData.Video
 	postText := postData.Text
 
-	if len(images) == 0 {
+	if len(images) == 0 && video == nil {
 		_, err = b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: msg.Chat.ID,
-			Text:   "No images found in that post.",
+			Text:   "No images or video found in that post.",
 			ReplyParameters: &models.ReplyParameters{
 				MessageID: msg.ID,
 			},
@@ -211,6 +214,11 @@ func handleSpoilerCommand(ctx context.Context, b *bot.Bot, msg *models.Message, 
 		if err != nil {
 			log.Printf("SendMessage: No images found in that post: %v", err)
 		}
+		return
+	}
+
+	if video != nil {
+		handleVideoPost(ctx, b, msg, video, parsed.OriginalURL, cwText, postText)
 		return
 	}
 
@@ -299,6 +307,117 @@ func handleSpoilerCommand(ctx context.Context, b *bot.Bot, msg *models.Message, 
 				"```",
 			ParseMode: models.ParseModeMarkdown,
 		})
+	}
+}
+
+func handleVideoPost(ctx context.Context, b *bot.Bot, msg *models.Message, video *VideoInfo, originalURL, cwText, postText string) {
+	// Send progress indicator
+	progressMsg, err := b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: msg.Chat.ID,
+		Text:   "⏳ Downloading video...",
+		ReplyParameters: &models.ReplyParameters{
+			MessageID: msg.ID,
+		},
+	})
+	if err != nil {
+		log.Printf("send progress message: %v", err)
+	}
+
+	deleteProgress := func() {
+		if progressMsg != nil {
+			b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+				ChatID:    msg.Chat.ID,
+				MessageID: progressMsg.ID,
+			})
+		}
+	}
+
+	// Download the raw MP4 blob directly
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, video.DirectURL, nil)
+	if err != nil {
+		log.Printf("create download request: %v", err)
+		deleteProgress()
+		return
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Printf("download video: %v", err)
+		deleteProgress()
+		b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "Failed to download video.",
+			ReplyParameters: &models.ReplyParameters{
+				MessageID: msg.ID,
+			},
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	tmpFile, err := os.CreateTemp("", "bsky-video-*.mp4")
+	if err != nil {
+		log.Printf("create temp file: %v", err)
+		deleteProgress()
+		return
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err = io.Copy(tmpFile, resp.Body); err != nil {
+		tmpFile.Close()
+		log.Printf("write temp file: %v", err)
+		deleteProgress()
+		b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "Failed to download video.",
+			ReplyParameters: &models.ReplyParameters{
+				MessageID: msg.ID,
+			},
+		})
+		return
+	}
+	tmpFile.Close()
+
+	f, err := os.Open(tmpPath)
+	if err != nil {
+		log.Printf("open temp file: %v", err)
+		deleteProgress()
+		return
+	}
+	defer f.Close()
+
+	caption := buildCaption(msg.From.FirstName, msg.From.Username, originalURL, cwText, postText)
+
+	sentMsg, err := b.SendVideo(ctx, &bot.SendVideoParams{
+		ChatID:                msg.Chat.ID,
+		Video:                 &models.InputFileUpload{Filename: "video.mp4", Data: f},
+		Caption:               caption,
+		ParseMode:             models.ParseModeHTML,
+		HasSpoiler:            true,
+		ShowCaptionAboveMedia: true,
+	})
+	if err != nil {
+		log.Printf("SendVideo: %v", err)
+		deleteProgress()
+		b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "Failed to send video.",
+			ReplyParameters: &models.ReplyParameters{
+				MessageID: msg.ID,
+			},
+		})
+		return
+	}
+
+	storeMessageMetadata(msg.Chat.ID, sentMsg.ID, msg.From.ID)
+	deleteProgress()
+
+	_, err = b.DeleteMessage(ctx, &bot.DeleteMessageParams{
+		ChatID:    msg.Chat.ID,
+		MessageID: msg.ID,
+	})
+	if err != nil {
+		log.Println("Can't delete sender's message:", err)
 	}
 }
 

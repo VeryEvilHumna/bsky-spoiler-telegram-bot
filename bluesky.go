@@ -25,8 +25,15 @@ type ImageInfo struct {
 	Alt      string
 }
 
+type VideoInfo struct {
+	DirectURL    string // com.atproto.sync.getBlob URL for the raw MP4
+	ThumbnailURL string
+	Alt          string
+}
+
 type PostData struct {
 	Images []ImageInfo
+	Video  *VideoInfo
 	Text   string
 }
 
@@ -80,6 +87,7 @@ func (c *BlueskyClient) FetchPost(ctx context.Context, atURI string) (*PostData,
 	post := resp.Posts[0]
 	data := &PostData{
 		Images: extractImages(post),
+		Video:  extractVideo(post),
 	}
 	if feedPost, ok := post.Record.Val.(*bsky.FeedPost); ok {
 		data.Text = feedPost.Text
@@ -113,4 +121,41 @@ func extractImages(post *bsky.FeedDefs_PostView) []ImageInfo {
 		}
 	}
 	return imgs
+}
+
+func extractVideo(post *bsky.FeedDefs_PostView) *VideoInfo {
+	feedPost, ok := post.Record.Val.(*bsky.FeedPost)
+	if !ok || feedPost.Embed == nil {
+		return nil
+	}
+
+	var embedVideo *bsky.EmbedVideo
+	if feedPost.Embed.EmbedVideo != nil {
+		embedVideo = feedPost.Embed.EmbedVideo
+	} else if feedPost.Embed.EmbedRecordWithMedia != nil && feedPost.Embed.EmbedRecordWithMedia.Media != nil {
+		embedVideo = feedPost.Embed.EmbedRecordWithMedia.Media.EmbedVideo
+	}
+	if embedVideo == nil || embedVideo.Video == nil {
+		return nil
+	}
+
+	did := post.Author.Did
+	cid := embedVideo.Video.Ref.String()
+	directURL := fmt.Sprintf("https://bsky.social/xrpc/com.atproto.sync.getBlob?did=%s&cid=%s", did, cid)
+
+	vi := &VideoInfo{DirectURL: directURL}
+	if embedVideo.Alt != nil {
+		vi.Alt = *embedVideo.Alt
+	}
+	// Thumbnail from the view if available
+	if post.Embed != nil {
+		if vv := post.Embed.EmbedVideo_View; vv != nil && vv.Thumbnail != nil {
+			vi.ThumbnailURL = *vv.Thumbnail
+		} else if rwm := post.Embed.EmbedRecordWithMedia_View; rwm != nil && rwm.Media != nil {
+			if vv := rwm.Media.EmbedVideo_View; vv != nil && vv.Thumbnail != nil {
+				vi.ThumbnailURL = *vv.Thumbnail
+			}
+		}
+	}
+	return vi
 }
