@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/TwinProduction/gdstore"
@@ -26,7 +28,15 @@ type MessageMetadata struct {
 	MessageID int
 }
 
+// PendingRequest tracks users who sent a command without a URL and are expected to reply with one
+type PendingRequest struct {
+	HasSpoiler bool
+	BotMsgID   int // bot's "please send link" message
+	CmdMsgID   int // original command message
+}
+
 var store *gdstore.GDStore
+var pendingRequests sync.Map // key: "chatID:userID"
 
 func main() {
 	token := os.Getenv("TELEGRAM_BOT_TOKEN")
@@ -61,6 +71,16 @@ func main() {
 		return update.MessageReaction != nil
 	}, func(ctx context.Context, b *bot.Bot, update *models.Update) {
 		handleMessageReaction(ctx, b, update.MessageReaction)
+	})
+
+	// Catch-all for plain (non-command) messages: handles pending link replies and auto-detected bsky URLs
+	b.RegisterHandlerMatchFunc(func(update *models.Update) bool {
+		return update.Message != nil &&
+			update.Message.Text != "" &&
+			!strings.HasPrefix(update.Message.Text, "/") &&
+			update.Message.From != nil
+	}, func(ctx context.Context, b *bot.Bot, update *models.Update) {
+		handlePlainMessage(ctx, b, update.Message, bskyClient)
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -134,20 +154,78 @@ func handleMediaCommand(ctx context.Context, b *bot.Bot, msg *models.Message, bs
 		if !hasSpoiler {
 			cmd = "/nospoiler"
 		}
-		_, err := b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID:    msg.Chat.ID,
-			Text:      "Usage: ```command\n" + bot.EscapeMarkdown(cmd+" <bsky.app post URL> [content warning]") + "```",
-			ParseMode: models.ParseModeMarkdown,
+		askMsg, err := b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text: fmt.Sprintf(
+				"Please send me the Bluesky post link.\n\n"+
+					"💡 You can also use the command directly:\n"+
+					"<code>%s &lt;bsky.app post URL&gt; [content warning]</code>",
+				cmd,
+			),
+			ParseMode: models.ParseModeHTML,
 			ReplyParameters: &models.ReplyParameters{
 				MessageID: msg.ID,
 			},
 		})
 		if err != nil {
-			log.Printf("sending message with help: %v", err)
+			log.Printf("sending ask-for-link message: %v", err)
+			return
+		}
+		key := fmt.Sprintf("%d:%d", msg.Chat.ID, msg.From.ID)
+		pendingRequests.Store(key, &PendingRequest{
+			HasSpoiler: hasSpoiler,
+			BotMsgID:   askMsg.ID,
+			CmdMsgID:   msg.ID,
+		})
+		return
+	}
+
+	processMediaURL(ctx, b, msg, arg, hasSpoiler, bskyClient)
+}
+
+// handlePlainMessage handles non-command messages. It only acts when the user has a pending
+// link request (sent a command without a URL). The pending slot is consumed on the first reply,
+// valid or not.
+func handlePlainMessage(ctx context.Context, b *bot.Bot, msg *models.Message, bskyClient *BlueskyClient) {
+	key := fmt.Sprintf("%d:%d", msg.Chat.ID, msg.From.ID)
+	val, ok := pendingRequests.LoadAndDelete(key)
+	if !ok {
+		return
+	}
+	pending := val.(*PendingRequest)
+
+	if _, err := ParseBlueskyURL(msg.Text); err != nil {
+		// Invalid — send an error that auto-deletes after 10 s, clean up all related messages
+		errMsg, sendErr := b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ That doesn't look like a valid Bluesky post URL. This message will self-destruct in 10 seconds.",
+			ReplyParameters: &models.ReplyParameters{
+				MessageID: msg.ID,
+			},
+		})
+		deleteSilently(ctx, b, msg.Chat.ID, pending.BotMsgID, pending.CmdMsgID)
+		if sendErr == nil && errMsg != nil {
+			go func() {
+				time.Sleep(10 * time.Second)
+				deleteSilently(ctx, b, msg.Chat.ID, errMsg.ID)
+			}()
 		}
 		return
 	}
 
+	// Valid URL — clean up the ask and original command messages, then process.
+	// The link message (msg) will be deleted by the existing deleteCommandMessage inside processMediaURL.
+	deleteSilently(ctx, b, msg.Chat.ID, pending.BotMsgID, pending.CmdMsgID)
+	processMediaURL(ctx, b, msg, msg.Text, pending.HasSpoiler, bskyClient)
+}
+
+func deleteSilently(ctx context.Context, b *bot.Bot, chatID int64, msgIDs ...int) {
+	for _, id := range msgIDs {
+		b.DeleteMessage(ctx, &bot.DeleteMessageParams{ChatID: chatID, MessageID: id}) //nolint
+	}
+}
+
+func processMediaURL(ctx context.Context, b *bot.Bot, msg *models.Message, arg string, hasSpoiler bool, bskyClient *BlueskyClient) {
 	parsed, err := ParseBlueskyURL(arg)
 	var cwText string
 	if err == nil {

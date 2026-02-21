@@ -23,6 +23,7 @@ This bot listens for `/spoiler` or `/nospoiler` commands followed by a Bluesky p
 - Smart reaction notifications: get silent DM notifications when someone reacts to your post
   - Updates existing notification if it's still relevant
   - Shows "reacted and removed" when users unreact, auto-deletes after 30s if no new reaction
+- Two-step link flow: send the command without a URL and the bot will ask for the link in the next message (requires the bot to have access to all messages in the chat)
 - Janky error handling with user-friendly messages
 
 ## Requirements
@@ -69,7 +70,8 @@ This bot listens for `/spoiler` or `/nospoiler` commands followed by a Bluesky p
 
 1. Add the bot to your Telegram chat or group.
 2. Ensure the bot has permission to delete messages (for automatic cleanup).
-3. Use one of the commands:
+3. Optionally, disable privacy mode (via [@BotFather](https://t.me/botfather)) or make the bot an admin to enable the two-step link flow (send the command alone, bot asks for the URL next).
+4. Use one of the commands:
 
 ```
 /spoiler <Bluesky post URL> [content warning]
@@ -91,6 +93,7 @@ The bot will:
 - Fetch the images or video from the Bluesky post
 - Send them in the chat (blurred with `/spoiler`, unblurred with `/nospoiler`), with the post text attached as a collapsible blockquote
 - Delete the original command message (requires permission to delete messages in chat)
+- If sent without a URL, ask for the link in a follow-up message — then process it and clean up all related messages automatically (requires access to all messages)
 - Send you silent DM notifications when someone reacts to your post
   - Notifications update intelligently (edits if still last message, sends new otherwise)
   - When users unreact: shows "reacted and removed", auto-deletes after 30s if no new reaction
