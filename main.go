@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/TwinProduction/gdstore"
@@ -23,13 +22,6 @@ type MessageMetadata struct {
 	UserID    int64
 	ChatID    int64
 	MessageID int
-}
-
-// NotificationMetadata stores the last notification message ID and removal state
-type NotificationMetadata struct {
-	NotificationMsgID int      // Message ID of the last DM notification
-	RemovedAt         int64    // Unix timestamp when reaction was removed (0 if not removed)
-	RemovedEmojis     []string // Emojis that were removed
 }
 
 var store *gdstore.GDStore
@@ -341,46 +333,16 @@ func getMessageMetadata(chatID int64, messageID int) *MessageMetadata {
 	return &metadata
 }
 
-func storeNotificationMetadata(userID, chatID int64, messageID int, meta *NotificationMetadata) {
-	key := fmt.Sprintf("notification:%d:%d:%d", userID, chatID, messageID)
-	data, err := json.Marshal(meta)
-	if err != nil {
-		log.Printf("failed to marshal notification metadata: %v", err)
-		return
-	}
-	if err := store.Put(key, data); err != nil {
-		log.Printf("failed to store notification metadata: %v", err)
-	}
-}
-
-func getNotificationMetadata(userID, chatID int64, messageID int) *NotificationMetadata {
-	key := fmt.Sprintf("notification:%d:%d:%d", userID, chatID, messageID)
-	data, ok := store.Get(key)
-	if !ok {
-		return nil
-	}
-	var meta NotificationMetadata
-	if err := json.Unmarshal(data, &meta); err != nil {
-		log.Printf("failed to unmarshal notification metadata: %v", err)
-		return nil
-	}
-	return &meta
-}
-
 func handleMessageReaction(ctx context.Context, b *bot.Bot, reaction *models.MessageReactionUpdated) {
-	// Only handle reactions in group chats
-	if reaction.Chat.Type == "private" {
+	if reaction.Chat.Type == "private" || len(reaction.NewReaction) == 0 {
 		return
 	}
 
-	// Look up original message metadata
 	metadata := getMessageMetadata(reaction.Chat.ID, reaction.MessageID)
 	if metadata == nil {
-		// Message not in cache (probably sent before bot restart)
 		return
 	}
 
-	// Extract reactor information
 	var reactorName string
 	if reaction.User != nil {
 		if reaction.User.Username != "" {
@@ -394,86 +356,17 @@ func handleMessageReaction(ctx context.Context, b *bot.Bot, reaction *models.Mes
 		reactorName = "Anonymous"
 	}
 
-	// Build chat title
 	chatTitle := reaction.Chat.Title
 	if chatTitle == "" {
 		chatTitle = "a chat"
 	}
 
-	// Build message link
 	chatIDStr := fmt.Sprintf("%d", reaction.Chat.ID)
 	if len(chatIDStr) > 4 && chatIDStr[:4] == "-100" {
 		chatIDStr = chatIDStr[4:]
 	}
 	messageLink := fmt.Sprintf("https://t.me/c/%s/%d", chatIDStr, reaction.MessageID)
 
-	// Look up previous notification metadata
-	notificationMeta := getNotificationMetadata(metadata.UserID, reaction.Chat.ID, reaction.MessageID)
-
-	// If user removed all reactions
-	if len(reaction.NewReaction) == 0 {
-		if notificationMeta != nil && notificationMeta.NotificationMsgID != 0 {
-			// Extract old emojis from OldReaction
-			var oldEmojis []string
-			for _, r := range reaction.OldReaction {
-				if r.ReactionTypeEmoji != nil {
-					oldEmojis = append(oldEmojis, r.ReactionTypeEmoji.Emoji)
-				} else if r.ReactionTypeCustomEmoji != nil {
-					oldEmojis = append(oldEmojis, "[custom]")
-				}
-			}
-
-			// Update notification to show "reacted and removed"
-			emojiStr := strings.Join(oldEmojis, " ")
-			notificationText := fmt.Sprintf(
-				"🎭 <b>%s</b> reacted: %s and removed\n\n"+
-					"<b>In:</b> %s\n\n"+
-					"<a href=\"%s\">Jump to message</a>",
-				reactorName,
-				emojiStr,
-				chatTitle,
-				messageLink,
-			)
-
-			_, err := b.EditMessageText(ctx, &bot.EditMessageTextParams{
-				ChatID:    metadata.UserID,
-				MessageID: notificationMeta.NotificationMsgID,
-				Text:      notificationText,
-				ParseMode: models.ParseModeHTML,
-			})
-			if err != nil {
-				log.Printf("edit notification for removal: %v", err)
-			}
-
-			// Store removal timestamp and emojis
-			notificationMeta.RemovedAt = time.Now().Unix()
-			notificationMeta.RemovedEmojis = oldEmojis
-			storeNotificationMetadata(metadata.UserID, reaction.Chat.ID, reaction.MessageID, notificationMeta)
-
-			// Start goroutine to delete after 30 seconds if no new reaction
-			go func() {
-				time.Sleep(30 * time.Second)
-
-				// Re-fetch metadata to check if it's still in "removed" state
-				currentMeta := getNotificationMetadata(metadata.UserID, reaction.Chat.ID, reaction.MessageID)
-				if currentMeta != nil && currentMeta.RemovedAt == notificationMeta.RemovedAt && currentMeta.RemovedAt != 0 {
-					// Still in removed state, delete the notification
-					_, err := b.DeleteMessage(ctx, &bot.DeleteMessageParams{
-						ChatID:    metadata.UserID,
-						MessageID: currentMeta.NotificationMsgID,
-					})
-					if err != nil {
-						log.Printf("delete notification after 30s: %v", err)
-					}
-					// Clear metadata
-					storeNotificationMetadata(metadata.UserID, reaction.Chat.ID, reaction.MessageID, &NotificationMetadata{})
-				}
-			}()
-		}
-		return
-	}
-
-	// Extract emojis from new reaction
 	var emojis []string
 	for _, r := range reaction.NewReaction {
 		if r.ReactionTypeEmoji != nil {
@@ -483,59 +376,25 @@ func handleMessageReaction(ctx context.Context, b *bot.Bot, reaction *models.Mes
 		}
 	}
 
-	// Build notification text
-	emojiStr := strings.Join(emojis, " ")
 	notificationText := fmt.Sprintf(
 		"🎭 <b>%s</b> reacted: %s\n\n"+
 			"<b>In:</b> %s\n\n"+
 			"<a href=\"%s\">Jump to message</a>",
 		reactorName,
-		emojiStr,
+		strings.Join(emojis, " "),
 		chatTitle,
 		messageLink,
 	)
 
-	var newMessageID int
-
-	// Try to edit previous notification if it exists
-	if notificationMeta != nil && notificationMeta.NotificationMsgID != 0 {
-		_, err := b.EditMessageText(ctx, &bot.EditMessageTextParams{
-			ChatID:    metadata.UserID,
-			MessageID: notificationMeta.NotificationMsgID,
-			Text:      notificationText,
-			ParseMode: models.ParseModeHTML,
-		})
-		if err != nil {
-			log.Printf("edit notification failed (not latest message or deleted): %v", err)
-			// Edit failed, will send new message below
-		} else {
-			// Edit succeeded, keep the same message ID
-			newMessageID = notificationMeta.NotificationMsgID
-		}
+	_, err := b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID:              metadata.UserID,
+		Text:                notificationText,
+		ParseMode:           models.ParseModeHTML,
+		DisableNotification: true,
+	})
+	if err != nil {
+		log.Printf("send reaction notification to user %d: %v", metadata.UserID, err)
 	}
-
-	// If edit failed or no previous notification, send new message
-	if newMessageID == 0 {
-		sentMsg, err := b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID:              metadata.UserID,
-			Text:                notificationText,
-			ParseMode:           models.ParseModeHTML,
-			DisableNotification: true, // Silent notification
-		})
-		if err != nil {
-			log.Printf("send reaction notification to user %d: %v", metadata.UserID, err)
-			return
-		}
-		newMessageID = sentMsg.ID
-	}
-
-	// Store notification message ID and clear removal state
-	newNotificationMeta := &NotificationMetadata{
-		NotificationMsgID: newMessageID,
-		RemovedAt:         0,
-		RemovedEmojis:     nil,
-	}
-	storeNotificationMetadata(metadata.UserID, reaction.Chat.ID, reaction.MessageID, newNotificationMeta)
 }
 
 func buildCaption(firstName, username, originalURL, cwText, postText string) string {
