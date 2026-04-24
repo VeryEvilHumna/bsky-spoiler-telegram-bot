@@ -1,0 +1,22 @@
+[Unit]
+Description=Bluesky Spoiler Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=evil
+WorkingDirectory=/home/evil/bsky-spoiler-telegram-bot
+ExecStart=/home/evil/bsky-spoiler-telegram-bot/bsky-spoiler-telegram-bot
+Restart=on-failure
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/evil/bsky-spoiler-telegram-bot
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

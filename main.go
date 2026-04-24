@@ -154,6 +154,16 @@ func handleMediaCommand(ctx context.Context, b *bot.Bot, msg *models.Message, bs
 	arg := parseCommandArg(msg.Text)
 
 	if utf8.RuneCountInString(arg) == 0 {
+		if msg.ReplyToMessage != nil {
+			if parsed, err := ParseBlueskyURL(msg.ReplyToMessage.Text); err == nil {
+				var origUser *models.User
+				if msg.ReplyToMessage.From != nil {
+					origUser = msg.ReplyToMessage.From
+				}
+				processMediaURL(ctx, b, msg, parsed.OriginalURL, hasSpoiler, bskyClient, origUser)
+				return
+			}
+		}
 		cmd := "/spoiler"
 		if !hasSpoiler {
 			cmd = "/nospoiler"
@@ -184,7 +194,7 @@ func handleMediaCommand(ctx context.Context, b *bot.Bot, msg *models.Message, bs
 		return
 	}
 
-	processMediaURL(ctx, b, msg, arg, hasSpoiler, bskyClient)
+	processMediaURL(ctx, b, msg, arg, hasSpoiler, bskyClient, nil)
 }
 
 // handlePlainMessage handles non-command messages. It only acts when the user has a pending
@@ -198,7 +208,19 @@ func handlePlainMessage(ctx context.Context, b *bot.Bot, msg *models.Message, bs
 	}
 	pending := val.(*PendingRequest)
 
-	if _, err := ParseBlueskyURL(msg.Text); err != nil {
+	linkText := msg.Text
+	var origUser *models.User
+	if _, err := ParseBlueskyURL(linkText); err != nil {
+		if msg.ReplyToMessage != nil {
+			if _, err2 := ParseBlueskyURL(msg.ReplyToMessage.Text); err2 == nil {
+				linkText = msg.ReplyToMessage.Text
+				if msg.ReplyToMessage.From != nil {
+					origUser = msg.ReplyToMessage.From
+				}
+			}
+		}
+	}
+	if _, err := ParseBlueskyURL(linkText); err != nil {
 		// Invalid — send an error that auto-deletes after 10 s, clean up all related messages
 		errMsg, sendErr := b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: msg.Chat.ID,
@@ -220,7 +242,7 @@ func handlePlainMessage(ctx context.Context, b *bot.Bot, msg *models.Message, bs
 	// Valid URL — clean up the ask and original command messages, then process.
 	// The link message (msg) will be deleted by the existing deleteCommandMessage inside processMediaURL.
 	deleteSilently(ctx, b, msg.Chat.ID, pending.BotMsgID, pending.CmdMsgID)
-	processMediaURL(ctx, b, msg, msg.Text, pending.HasSpoiler, bskyClient)
+	processMediaURL(ctx, b, msg, linkText, pending.HasSpoiler, bskyClient, origUser)
 }
 
 func deleteSilently(ctx context.Context, b *bot.Bot, chatID int64, msgIDs ...int) {
@@ -229,7 +251,7 @@ func deleteSilently(ctx context.Context, b *bot.Bot, chatID int64, msgIDs ...int
 	}
 }
 
-func processMediaURL(ctx context.Context, b *bot.Bot, msg *models.Message, arg string, hasSpoiler bool, bskyClient *BlueskyClient) {
+func processMediaURL(ctx context.Context, b *bot.Bot, msg *models.Message, arg string, hasSpoiler bool, bskyClient *BlueskyClient, origUser *models.User) {
 	parsed, err := ParseBlueskyURL(arg)
 	var cwText string
 	if err == nil {
@@ -311,7 +333,12 @@ func processMediaURL(ctx context.Context, b *bot.Bot, msg *models.Message, arg s
 		return
 	}
 
-	caption := buildCaption(msg.From.FirstName, msg.From.Username, parsed.OriginalURL, cwText, postData.Text)
+	var origFirstName, origUsername string
+	if origUser != nil {
+		origFirstName = origUser.FirstName
+		origUsername = origUser.Username
+	}
+	caption := buildCaption(msg.From.FirstName, msg.From.Username, origFirstName, origUsername, parsed.OriginalURL, cwText, postData.Text)
 
 	if postData.Video != nil {
 		handleVideoPost(ctx, b, msg, postData.Video, caption, hasSpoiler)
@@ -594,14 +621,26 @@ func handleMessageReaction(ctx context.Context, b *bot.Bot, reaction *models.Mes
 	}
 }
 
-func buildCaption(firstName, username, originalURL, cwText, postText string) string {
-	body := fmt.Sprintf(
-		`<a href="%s">%s</a> (%s) sent:`+"\n%s",
-		"t.me/"+username,
-		firstName,
-		"@"+username,
-		originalURL,
-	)
+func buildCaption(firstName, username, origFirstName, origUsername, originalURL, cwText, postText string) string {
+	var body string
+	if origUsername != "" && origUsername != username {
+		body = fmt.Sprintf(
+			`<a href="%s">%s</a> + <a href="%s">%s</a>`+"\n%s",
+			"t.me/"+origUsername,
+			"@"+origUsername,
+			"t.me/"+username,
+			"@"+username,
+			originalURL,
+		)
+	} else {
+		body = fmt.Sprintf(
+			`<a href="%s">%s</a> (%s) sent:`+"\n%s",
+			"t.me/"+username,
+			firstName,
+			"@"+username,
+			originalURL,
+		)
+	}
 	if cwText != "" {
 		body = fmt.Sprintf("<blockquote><b>CW: %s</b></blockquote>", html.EscapeString(cwText)) + body
 	}
