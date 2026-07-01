@@ -1,22 +1,28 @@
 # bsky-spoiler-telegram-bot
 
-A Telegram bot that gets images/video from Bluesky posts and sends them in Telegram chats, optionally blurred as spoilers.
+A Telegram bot that gets images/video from Bluesky, Twitter/X, and Inkbunny posts and sends them in Telegram chats, optionally blurred as spoilers.
 
 Hosted version available: [t.me/bskyWithSpoilerBot](https://t.me/bskyWithSpoilerBot). Just add it in your group and give permission to delete messages
 
 ## Description
 
-This bot listens for `/spoiler` or `/nospoiler` commands followed by a Bluesky post URL. It fetches the images or video from the specified post and sends them in the Telegram chat, then deletes the original command message to keep the chat clean. `/spoiler` blurs the media until tapped; `/nospoiler` sends it unblurred. Either way, the post text is tucked away under a collapsible blockquote.
+This bot listens for `/spoiler` or `/nospoiler` commands followed by a post URL. It fetches the images or video from the specified post and sends them in the Telegram chat, then deletes the original command message to keep the chat clean. `/spoiler` blurs the media until tapped; `/nospoiler` sends it unblurred. Either way, the post text is tucked away under a collapsible blockquote.
 
 ## Features
 
 - `/spoiler` — sends media blurred until tapped
 - `/nospoiler` — sends media unblurred; post text still collapsed
-- Works with "private" Bluesky profiles
-- Doesn't require Bluesky auth, uses the public API
+- Multi-platform support:
+  - **Bluesky** — works with "private" profiles, no auth required (public API)
+  - **Twitter/X** — via [fxtwitter](https://github.com/FixedDev/FxTwitter) API, no API key needed
+  - **Inkbunny** — with BB code to HTML conversion for descriptions
 - Supports images and video posts
 - Supports multiple images in the post
-- Supports multiple embed domains (bsky.app, fxbsky.app, vxbsky.app, bskye.app, bskyx.app, bsyy.app)
+- Supported domains:
+  - Bluesky: bsky.app, fxbsky.app, vxbsky.app, bskye.app, bskyx.app, bsyy.app
+  - Twitter/X: x.com, twitter.com, fxtwitter.com, vxtwitter.com, fixupx.com
+  - Inkbunny: inkbunny.net
+  - AT URIs: `at://did:plc:xxx/app.bsky.feed.post/...`
 - Automatic deletion of the command message (requires permission to delete messages in chat)
 - Optional content warning text appended after the post link in the caption
 - Post text revealed as a collapsible blockquote — tap to expand and see what the post said
@@ -103,6 +109,10 @@ The bot will:
 - [github.com/go-telegram/bot](https://github.com/go-telegram/bot) - Telegram Bot API wrapper
 - [github.com/bluesky-social/indigo](https://github.com/bluesky-social/indigo) - Bluesky/AT Protocol client
 - [github.com/joho/godotenv](https://github.com/joho/godotenv) - Environment variable loader
+
+## Credits
+
+- [fxembed.com](https://fxembed.com/) — Twitter/X embed API used for fetching tweets without official API access
 
 ## License
 
