@@ -50,6 +50,15 @@ func main() {
 
 	bskyClient := NewBlueskyClient()
 
+	inkbunnyUsername := os.Getenv("INKBUNNY_USERNAME")
+	inkbunnyPassword := os.Getenv("INKBUNNY_PASSWORD")
+	if inkbunnyUsername != "" {
+		log.Printf("Inkbunny: authenticated as %s", inkbunnyUsername)
+	} else {
+		log.Println("Inkbunny: guest mode (set INKBUNNY_USERNAME/INKBUNNY_PASSWORD for full access)")
+	}
+	inkbunnyClient := NewInkbunnyClient(inkbunnyUsername, inkbunnyPassword)
+
 	b, err := bot.New(token, bot.WithAllowedUpdates(bot.AllowedUpdates{models.AllowedUpdateMessage, models.AllowedUpdateMessageReaction}))
 	if err != nil {
 		log.Fatalf("create bot: %v", err)
@@ -60,11 +69,11 @@ func main() {
 	})
 
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/spoiler", bot.MatchTypePrefix, func(ctx context.Context, b *bot.Bot, update *models.Update) {
-		handleMediaCommand(ctx, b, update.Message, bskyClient, true)
+		handleMediaCommand(ctx, b, update.Message, bskyClient, inkbunnyClient, true)
 	})
 
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/nospoiler", bot.MatchTypePrefix, func(ctx context.Context, b *bot.Bot, update *models.Update) {
-		handleMediaCommand(ctx, b, update.Message, bskyClient, false)
+		handleMediaCommand(ctx, b, update.Message, bskyClient, inkbunnyClient, false)
 	})
 
 	b.RegisterHandlerMatchFunc(func(update *models.Update) bool {
@@ -80,7 +89,7 @@ func main() {
 			!strings.HasPrefix(update.Message.Text, "/") &&
 			update.Message.From != nil
 	}, func(ctx context.Context, b *bot.Bot, update *models.Update) {
-		handlePlainMessage(ctx, b, update.Message, bskyClient)
+		handlePlainMessage(ctx, b, update.Message, bskyClient, inkbunnyClient)
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -97,20 +106,23 @@ func handleStartCommand(ctx context.Context, b *bot.Bot, msg *models.Message) {
 
 	welcomeText := `👋 Welcome to Bluesky Spoiler Bot!
 
-This bot fetches images from Bluesky posts and sends them as spoilered media in Telegram.
+This bot fetches images from Bluesky and Inkbunny posts and sends them as spoilered media in Telegram.
 
 <b>Usage:</b>
-<code>/spoiler &lt;Bluesky post URL&gt; [content warning]</code>
-<code>/nospoiler &lt;Bluesky post URL&gt; [content warning]</code>
+<code>/spoiler &lt;post URL&gt; [content warning]</code>
+<code>/nospoiler &lt;post URL&gt; [content warning]</code>
 
 <b>Examples:</b>
 <code>/spoiler https://bsky.app/profile/username.bsky.social/post/abc123</code>
 <code>/spoiler https://bsky.app/profile/username.bsky.social/post/abc123 body horror</code>
-<code>/nospoiler https://bsky.app/profile/username.bsky.social/post/abc123</code>
+<code>/spoiler https://inkbunny.net/s/3900461</code>
+<code>/nospoiler https://inkbunny.net/s/3900461 nudity</code>
 
 <b>Supported domains:</b>
 — bsky.app, fxbsky.app, vxbsky.app
 — bskye.app, bskyx.app, bsyy.app
+— inkbunny.net
+— at:// URIs (e.g. <code>at://did:plc:xxx/app.bsky.feed.post/...</code>)
 
 <b>Features:</b>
 — Works with "private" Bluesky profiles
@@ -150,17 +162,17 @@ func parseCommandArg(text string) string {
 	return trimSpace(arg)
 }
 
-func handleMediaCommand(ctx context.Context, b *bot.Bot, msg *models.Message, bskyClient *BlueskyClient, hasSpoiler bool) {
+func handleMediaCommand(ctx context.Context, b *bot.Bot, msg *models.Message, bskyClient *BlueskyClient, inkbunnyClient *InkbunnyClient, hasSpoiler bool) {
 	arg := parseCommandArg(msg.Text)
 
 	if utf8.RuneCountInString(arg) == 0 {
 		if msg.ReplyToMessage != nil {
-			if parsed, err := ParseBlueskyURL(msg.ReplyToMessage.Text); err == nil {
+			if parsed, err := ParseMediaURL(msg.ReplyToMessage.Text); err == nil {
 				var origUser *models.User
 				if msg.ReplyToMessage.From != nil {
 					origUser = msg.ReplyToMessage.From
 				}
-				processMediaURL(ctx, b, msg, parsed.OriginalURL, hasSpoiler, bskyClient, origUser)
+				processMediaURL(ctx, b, msg, parsed.OriginalURL, hasSpoiler, bskyClient, inkbunnyClient, origUser)
 				return
 			}
 		}
@@ -171,9 +183,9 @@ func handleMediaCommand(ctx context.Context, b *bot.Bot, msg *models.Message, bs
 		askMsg, err := b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: msg.Chat.ID,
 			Text: fmt.Sprintf(
-				"Please send me the Bluesky post link.\n\n"+
+				"Please send me a post link.\n\n"+
 					"💡 You can also use the command directly:\n"+
-					"<code>%s &lt;bsky.app post URL&gt; [content warning]</code>",
+					"<code>%s &lt;URL&gt; [content warning]</code>",
 				cmd,
 			),
 			ParseMode: models.ParseModeHTML,
@@ -194,13 +206,13 @@ func handleMediaCommand(ctx context.Context, b *bot.Bot, msg *models.Message, bs
 		return
 	}
 
-	processMediaURL(ctx, b, msg, arg, hasSpoiler, bskyClient, nil)
+	processMediaURL(ctx, b, msg, arg, hasSpoiler, bskyClient, inkbunnyClient, nil)
 }
 
 // handlePlainMessage handles non-command messages. It only acts when the user has a pending
 // link request (sent a command without a URL). The pending slot is consumed on the first reply,
 // valid or not.
-func handlePlainMessage(ctx context.Context, b *bot.Bot, msg *models.Message, bskyClient *BlueskyClient) {
+func handlePlainMessage(ctx context.Context, b *bot.Bot, msg *models.Message, bskyClient *BlueskyClient, inkbunnyClient *InkbunnyClient) {
 	key := fmt.Sprintf("%d:%d", msg.Chat.ID, msg.From.ID)
 	val, ok := pendingRequests.LoadAndDelete(key)
 	if !ok {
@@ -210,9 +222,9 @@ func handlePlainMessage(ctx context.Context, b *bot.Bot, msg *models.Message, bs
 
 	linkText := msg.Text
 	var origUser *models.User
-	if _, err := ParseBlueskyURL(linkText); err != nil {
+	if _, err := ParseMediaURL(linkText); err != nil {
 		if msg.ReplyToMessage != nil {
-			if _, err2 := ParseBlueskyURL(msg.ReplyToMessage.Text); err2 == nil {
+			if _, err2 := ParseMediaURL(msg.ReplyToMessage.Text); err2 == nil {
 				linkText = msg.ReplyToMessage.Text
 				if msg.ReplyToMessage.From != nil {
 					origUser = msg.ReplyToMessage.From
@@ -220,11 +232,11 @@ func handlePlainMessage(ctx context.Context, b *bot.Bot, msg *models.Message, bs
 			}
 		}
 	}
-	if _, err := ParseBlueskyURL(linkText); err != nil {
+	if _, err := ParseMediaURL(linkText); err != nil {
 		// Invalid — send an error that auto-deletes after 10 s, clean up all related messages
 		errMsg, sendErr := b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: msg.Chat.ID,
-			Text:   "⚠️ That doesn't look like a valid Bluesky post URL. This message will self-destruct in 10 seconds.",
+			Text:   "⚠️ That doesn't look like a valid post URL. This message will self-destruct in 10 seconds.",
 			ReplyParameters: &models.ReplyParameters{
 				MessageID: msg.ID,
 			},
@@ -242,7 +254,7 @@ func handlePlainMessage(ctx context.Context, b *bot.Bot, msg *models.Message, bs
 	// Valid URL — clean up the ask and original command messages, then process.
 	// The link message (msg) will be deleted by the existing deleteCommandMessage inside processMediaURL.
 	deleteSilently(ctx, b, msg.Chat.ID, pending.BotMsgID, pending.CmdMsgID)
-	processMediaURL(ctx, b, msg, linkText, pending.HasSpoiler, bskyClient, origUser)
+	processMediaURL(ctx, b, msg, linkText, pending.HasSpoiler, bskyClient, inkbunnyClient, origUser)
 }
 
 func deleteSilently(ctx context.Context, b *bot.Bot, chatID int64, msgIDs ...int) {
@@ -251,8 +263,8 @@ func deleteSilently(ctx context.Context, b *bot.Bot, chatID int64, msgIDs ...int
 	}
 }
 
-func processMediaURL(ctx context.Context, b *bot.Bot, msg *models.Message, arg string, hasSpoiler bool, bskyClient *BlueskyClient, origUser *models.User) {
-	parsed, err := ParseBlueskyURL(arg)
+func processMediaURL(ctx context.Context, b *bot.Bot, msg *models.Message, arg string, hasSpoiler bool, bskyClient *BlueskyClient, inkbunnyClient *InkbunnyClient, origUser *models.User) {
+	parsed, err := ParseMediaURL(arg)
 	var cwText string
 	if err == nil {
 		urlIdx := strings.Index(arg, parsed.OriginalURL)
@@ -263,7 +275,7 @@ func processMediaURL(ctx context.Context, b *bot.Bot, msg *models.Message, arg s
 	if err != nil {
 		_, err = b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: msg.Chat.ID,
-			Text:   "Please provide a valid Bluesky post URL (supports bsky.app, fxbsky.app, vxbsky.app, bskye.app, bskyx.app, bsyy.app).",
+			Text:   "Please provide a valid post URL (supports bsky.app, fxbsky.app, vxbsky.app, bskye.app, bskyx.app, bsyy.app, inkbunny.net, and at:// URIs).",
 			ReplyParameters: &models.ReplyParameters{
 				MessageID: msg.ID,
 			},
@@ -292,34 +304,57 @@ func processMediaURL(ctx context.Context, b *bot.Bot, msg *models.Message, arg s
 		return
 	}
 
-	did, err := bskyClient.ResolveToDID(ctx, parsed.Authority)
-	if err != nil {
-		log.Printf("resolve DID: %v", err.Error())
-		b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: msg.Chat.ID,
-			Text:   "Failed to resolve Bluesky profile.",
-			ReplyParameters: &models.ReplyParameters{
-				MessageID: msg.ID,
-			},
-		})
-		return
+	var mediaResult *MediaResult
+
+	if parsed.Source == "inkbunny" {
+		mediaResult, err = inkbunnyClient.FetchSubmission(ctx, parsed.Rkey)
+		if err != nil {
+			log.Printf("fetch inkbunny submission: %v", err)
+			if _, sendErr := b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: msg.Chat.ID,
+				Text:   "Failed to fetch Inkbunny submission.",
+				ReplyParameters: &models.ReplyParameters{
+					MessageID: msg.ID,
+				},
+			}); sendErr != nil {
+				log.Printf("send error notification: %v", sendErr)
+			}
+			return
+		}
+	} else {
+		did, err := bskyClient.ResolveToDID(ctx, parsed.Authority)
+		if err != nil {
+			log.Printf("resolve DID: %v", err.Error())
+			if _, sendErr := b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: msg.Chat.ID,
+				Text:   "Failed to resolve Bluesky profile.",
+				ReplyParameters: &models.ReplyParameters{
+					MessageID: msg.ID,
+				},
+			}); sendErr != nil {
+				log.Printf("send error notification: %v", sendErr)
+			}
+			return
+		}
+
+		atURI := fmt.Sprintf("at://%s/app.bsky.feed.post/%s", did, parsed.Rkey)
+		mediaResult, err = bskyClient.FetchPost(ctx, atURI)
+		if err != nil {
+			log.Printf("fetch post: %v", err)
+			if _, sendErr := b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: msg.Chat.ID,
+				Text:   "Failed to fetch post images.",
+				ReplyParameters: &models.ReplyParameters{
+					MessageID: msg.ID,
+				},
+			}); sendErr != nil {
+				log.Printf("send error notification: %v", sendErr)
+			}
+			return
+		}
 	}
 
-	atURI := fmt.Sprintf("at://%s/app.bsky.feed.post/%s", did, parsed.Rkey)
-	postData, err := bskyClient.FetchPost(ctx, atURI)
-	if err != nil {
-		log.Printf("fetch post: %v", err)
-		b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: msg.Chat.ID,
-			Text:   "Failed to fetch post images.",
-			ReplyParameters: &models.ReplyParameters{
-				MessageID: msg.ID,
-			},
-		})
-		return
-	}
-
-	if len(postData.Images) == 0 && postData.Video == nil {
+	if len(mediaResult.Images) == 0 && mediaResult.Video == nil {
 		_, err = b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: msg.Chat.ID,
 			Text:   "No images or video found in that post.",
@@ -338,40 +373,146 @@ func processMediaURL(ctx context.Context, b *bot.Bot, msg *models.Message, arg s
 		origFirstName = origUser.FirstName
 		origUsername = origUser.Username
 	}
-	caption := buildCaption(msg.From.FirstName, msg.From.Username, origFirstName, origUsername, parsed.OriginalURL, cwText, postData.Text)
 
-	if postData.Video != nil {
-		handleVideoPost(ctx, b, msg, postData.Video, caption, hasSpoiler)
+	var caption string
+	if parsed.Source == "inkbunny" {
+		caption = buildInkbunnyCaption(msg.From.FirstName, msg.From.Username, origFirstName, origUsername, mediaResult.Title, mediaResult.Author, mediaResult.AuthorURL, mediaResult.SubmissionURL, cwText, mediaResult.Text, hasSpoiler)
+	} else {
+		caption = buildCaption(msg.From.FirstName, msg.From.Username, origFirstName, origUsername, parsed.OriginalURL, cwText, mediaResult.Text, hasSpoiler)
+	}
+
+	if mediaResult.Video != nil {
+		referrer := ""
+		if parsed.Source == "inkbunny" {
+			referrer = "https://inkbunny.net/"
+		}
+		handleVideoPost(ctx, b, msg, mediaResult.Video, caption, hasSpoiler, referrer)
 		return
 	}
 
-	handleImagePost(ctx, b, msg, postData.Images, caption, hasSpoiler)
+	handleImagePost(ctx, b, msg, mediaResult.Images, caption, hasSpoiler)
 }
 
-func handleImagePost(ctx context.Context, b *bot.Bot, msg *models.Message, images []ImageInfo, caption string, hasSpoiler bool) {
+func handleImagePost(ctx context.Context, b *bot.Bot, msg *models.Message, images []MediaImage, caption string, hasSpoiler bool) {
 	var sentMsgIDs []int
 
-	if len(images) == 1 {
+	imagesToSend := images
+	pageNote := ""
+	if len(images) > 10 {
+		pageNote = fmt.Sprintf("\n📄 Showing 10 of %d pages", len(images))
+		imagesToSend = images[:10]
+	}
+	if pageNote != "" {
+		caption += pageNote
+	}
+
+	if len(imagesToSend) == 1 {
+		img := imagesToSend[0]
+		var photo models.InputFile
+		var localFile *os.File
+		if img.NeedsDownload {
+			body, err := downloadWithReferrer(ctx, img.Fullsize, "https://inkbunny.net/")
+			if err != nil {
+				log.Printf("download image: %v", err)
+				return
+			}
+			defer body.Close()
+			tmpFile, err := os.CreateTemp("", "ib-img-*.tmp")
+			if err != nil {
+				log.Printf("create temp file: %v", err)
+				return
+			}
+			tmpPath := tmpFile.Name()
+			defer os.Remove(tmpPath)
+			if _, err = io.Copy(tmpFile, body); err != nil {
+				tmpFile.Close()
+				log.Printf("write temp file: %v", err)
+				return
+			}
+			tmpFile.Close()
+			f, err := os.Open(tmpPath)
+			if err != nil {
+				log.Printf("open temp file: %v", err)
+				return
+			}
+			defer f.Close()
+			localFile = f
+			photo = &models.InputFileUpload{Filename: "image.jpg", Data: f}
+		} else {
+			photo = &models.InputFileString{Data: img.Fullsize}
+		}
 		sentMsg, err := b.SendPhoto(ctx, &bot.SendPhotoParams{
 			ChatID:                msg.Chat.ID,
-			Photo:                 &models.InputFileString{Data: images[0].Fullsize},
+			Photo:                 photo,
 			Caption:               caption,
 			ParseMode:             models.ParseModeHTML,
 			HasSpoiler:            hasSpoiler,
 			ShowCaptionAboveMedia: true,
 		})
 		if err != nil {
-			log.Printf("SendPhoto: %v", err)
-			return
+			log.Printf("SendPhoto failed, retrying as document: %v", err)
+			if localFile != nil {
+				if _, seekErr := localFile.Seek(0, 0); seekErr != nil {
+					log.Printf("seek temp file: %v", seekErr)
+					return
+				}
+			}
+			sentMsg, err = b.SendDocument(ctx, &bot.SendDocumentParams{
+				ChatID:    msg.Chat.ID,
+				Document:  photo,
+				Caption:   caption,
+				ParseMode: models.ParseModeHTML,
+			})
+			if err != nil {
+				log.Printf("SendDocument: %v", err)
+				return
+			}
 		}
 		sentMsgIDs = []int{sentMsg.ID}
 	} else {
-		media := make([]models.InputMedia, len(images))
-		for i, img := range images {
+		media := make([]models.InputMedia, len(imagesToSend))
+		var downloadedFiles []*os.File
+		defer func() {
+			for _, f := range downloadedFiles {
+				f.Close()
+			}
+		}()
+		for i, img := range imagesToSend {
 			p := &models.InputMediaPhoto{
-				Media:                 img.Fullsize,
 				HasSpoiler:            hasSpoiler,
 				ShowCaptionAboveMedia: true,
+			}
+			if img.NeedsDownload {
+				body, err := downloadWithReferrer(ctx, img.Fullsize, "https://inkbunny.net/")
+				if err != nil {
+					log.Printf("download image %d: %v", i, err)
+					return
+				}
+				tmpFile, err := os.CreateTemp("", "ib-img-*.tmp")
+				if err != nil {
+					body.Close()
+					log.Printf("create temp file: %v", err)
+					return
+				}
+				if _, err = io.Copy(tmpFile, body); err != nil {
+					body.Close()
+					tmpFile.Close()
+					log.Printf("write temp file: %v", err)
+					return
+				}
+				body.Close()
+				tmpFile.Close()
+				f, err := os.Open(tmpFile.Name())
+				if err != nil {
+					log.Printf("open temp file: %v", err)
+					return
+				}
+				downloadedFiles = append(downloadedFiles, f)
+				defer os.Remove(tmpFile.Name())
+				p.Media = fmt.Sprintf("attach://img_%d", i)
+				p.MediaAttachment = f
+			} else {
+				p.Media = img.Fullsize
 			}
 			if i == 0 {
 				p.Caption = caption
@@ -384,19 +525,41 @@ func handleImagePost(ctx context.Context, b *bot.Bot, msg *models.Message, image
 			Media:  media,
 		})
 		if err != nil {
-			log.Println("Can't send media group: ", err)
-			b.SendMessage(ctx, &bot.SendMessageParams{
-				ChatID: msg.Chat.ID,
-				Text: "Can't send media group: " +
-					"```error\n" +
-					err.Error() +
-					"```",
-				ParseMode: models.ParseModeMarkdown,
-			})
-			return
-		}
-		for _, sentMsg := range sentMsgs {
-			sentMsgIDs = append(sentMsgIDs, sentMsg.ID)
+			log.Printf("SendMediaGroup failed, retrying as documents: %v", err)
+			for i, img := range imagesToSend {
+				var doc models.InputFile
+				if img.NeedsDownload && i < len(downloadedFiles) {
+					if _, seekErr := downloadedFiles[i].Seek(0, 0); seekErr != nil {
+						log.Printf("seek temp file %d: %v", i, seekErr)
+						continue
+					}
+					doc = &models.InputFileUpload{Filename: fmt.Sprintf("image_%d.jpg", i), Data: downloadedFiles[i]}
+				} else {
+					doc = &models.InputFileString{Data: img.Fullsize}
+				}
+				docCaption := ""
+				if i == 0 {
+					docCaption = caption
+				}
+				sentMsg, sendErr := b.SendDocument(ctx, &bot.SendDocumentParams{
+					ChatID:    msg.Chat.ID,
+					Document:  doc,
+					Caption:   docCaption,
+					ParseMode: models.ParseModeHTML,
+				})
+				if sendErr != nil {
+					log.Printf("SendDocument %d: %v", i, sendErr)
+					continue
+				}
+				sentMsgIDs = append(sentMsgIDs, sentMsg.ID)
+			}
+			if len(sentMsgIDs) == 0 {
+				return
+			}
+		} else {
+			for _, sentMsg := range sentMsgs {
+				sentMsgIDs = append(sentMsgIDs, sentMsg.ID)
+			}
 		}
 	}
 
@@ -413,18 +576,20 @@ func deleteCommandMessage(ctx context.Context, b *bot.Bot, msg *models.Message) 
 	})
 	if err != nil {
 		log.Println("Can't delete sender's message, does bot have permission to delete messages?", err)
-		b.SendMessage(ctx, &bot.SendMessageParams{
+		if _, sendErr := b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: msg.Chat.ID,
 			Text: "Can't delete sender's message, does bot have permission to delete messages?" +
 				"```error\n" +
 				err.Error() +
 				"```",
 			ParseMode: models.ParseModeMarkdown,
-		})
+		}); sendErr != nil {
+			log.Printf("send permission error notification: %v", sendErr)
+		}
 	}
 }
 
-func handleVideoPost(ctx context.Context, b *bot.Bot, msg *models.Message, video *VideoInfo, caption string, hasSpoiler bool) {
+func handleVideoPost(ctx context.Context, b *bot.Bot, msg *models.Message, video *MediaVideo, caption string, hasSpoiler bool, referrer string) {
 	// Send progress indicator
 	progressMsg, err := b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: msg.Chat.ID,
@@ -453,22 +618,27 @@ func handleVideoPost(ctx context.Context, b *bot.Bot, msg *models.Message, video
 		deleteProgress()
 		return
 	}
+	if referrer != "" {
+		req.Header.Set("Referer", referrer)
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Printf("download video: %v", err)
 		deleteProgress()
-		b.SendMessage(ctx, &bot.SendMessageParams{
+		if _, sendErr := b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: msg.Chat.ID,
 			Text:   "Failed to download video.",
 			ReplyParameters: &models.ReplyParameters{
 				MessageID: msg.ID,
 			},
-		})
+		}); sendErr != nil {
+			log.Printf("send error notification: %v", sendErr)
+		}
 		return
 	}
 	defer resp.Body.Close()
 
-	tmpFile, err := os.CreateTemp("", "bsky-video-*.mp4")
+	tmpFile, err := os.CreateTemp("", "video-*.mp4")
 	if err != nil {
 		log.Printf("create temp file: %v", err)
 		deleteProgress()
@@ -481,13 +651,15 @@ func handleVideoPost(ctx context.Context, b *bot.Bot, msg *models.Message, video
 		tmpFile.Close()
 		log.Printf("write temp file: %v", err)
 		deleteProgress()
-		b.SendMessage(ctx, &bot.SendMessageParams{
+		if _, sendErr := b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: msg.Chat.ID,
 			Text:   "Failed to download video.",
 			ReplyParameters: &models.ReplyParameters{
 				MessageID: msg.ID,
 			},
-		})
+		}); sendErr != nil {
+			log.Printf("send error notification: %v", sendErr)
+		}
 		return
 	}
 	tmpFile.Close()
@@ -511,13 +683,15 @@ func handleVideoPost(ctx context.Context, b *bot.Bot, msg *models.Message, video
 	if err != nil {
 		log.Printf("SendVideo: %v", err)
 		deleteProgress()
-		b.SendMessage(ctx, &bot.SendMessageParams{
+		if _, sendErr := b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: msg.Chat.ID,
 			Text:   "Failed to send video.",
 			ReplyParameters: &models.ReplyParameters{
 				MessageID: msg.ID,
 			},
-		})
+		}); sendErr != nil {
+			log.Printf("send error notification: %v", sendErr)
+		}
 		return
 	}
 
@@ -621,7 +795,7 @@ func handleMessageReaction(ctx context.Context, b *bot.Bot, reaction *models.Mes
 	}
 }
 
-func buildCaption(firstName, username, origFirstName, origUsername, originalURL, cwText, postText string) string {
+func buildCaption(firstName, username, origFirstName, origUsername, originalURL, cwText, postText string, hasSpoiler bool) string {
 	var body string
 	if origUsername != "" && origUsername != username {
 		body = fmt.Sprintf(
@@ -634,7 +808,7 @@ func buildCaption(firstName, username, origFirstName, origUsername, originalURL,
 		)
 	} else {
 		body = fmt.Sprintf(
-			`<a href="%s">%s</a> (%s) sent:`+"\n%s",
+			`<a href="%s">%s</a> (%s) shared:`+"\n%s",
 			"t.me/"+username,
 			firstName,
 			"@"+username,
@@ -642,12 +816,55 @@ func buildCaption(firstName, username, origFirstName, origUsername, originalURL,
 		)
 	}
 	if cwText != "" {
-		body = fmt.Sprintf("<blockquote><b>CW: %s</b></blockquote>", html.EscapeString(cwText)) + body
+		if hasSpoiler {
+			body = fmt.Sprintf("<blockquote><b>CW: %s</b></blockquote>", html.EscapeString(cwText)) + body
+		} else {
+			body = fmt.Sprintf("<blockquote><b>%s</b></blockquote>", html.EscapeString(cwText)) + body
+		}
 	}
 	if postText != "" {
 		body += fmt.Sprintf(
-			"\n<blockquote expandable>===\n===   Show post text (tap)\n===\n\n%s</blockquote>",
+			"\n<blockquote expandable>⠀\n⠀  <b>Show post text (tap)</b>\n⠀ \n\n%s</blockquote>",
 			html.EscapeString(postText),
+		)
+	}
+	return body
+}
+
+func buildInkbunnyCaption(firstName, username, origFirstName, origUsername, title, author, authorURL, submissionURL, cwText, description string, hasSpoiler bool) string {
+	var body string
+	workLink := fmt.Sprintf(`<a href="%s">%s</a>`, submissionURL, html.EscapeString(title))
+	if origUsername != "" && origUsername != username {
+		body = fmt.Sprintf(
+			`<a href="%s">%s</a> + <a href="%s">%s</a>`+"\n%s by %s",
+			"t.me/"+origUsername,
+			"@"+origUsername,
+			"t.me/"+username,
+			"@"+username,
+			workLink,
+			fmt.Sprintf(`<a href="%s">%s</a>`, authorURL, html.EscapeString(author)),
+		)
+	} else {
+		body = fmt.Sprintf(
+			`<a href="%s">%s</a> (%s) shared:`+"\n\"<b>%s</b>\" by <b>%s</b>",
+			"t.me/"+username,
+			firstName,
+			"@"+username,
+			workLink,
+			fmt.Sprintf(`<a href="%s">%s</a>`, authorURL, html.EscapeString(author)),
+		)
+	}
+	if cwText != "" {
+		if hasSpoiler {
+			body = fmt.Sprintf("<blockquote><b>CW: %s</b></blockquote>", html.EscapeString(cwText)) + body
+		} else {
+			body = fmt.Sprintf("<blockquote><b>%s</b></blockquote>", html.EscapeString(cwText)) + body
+		}
+	}
+	if description != "" {
+		body += fmt.Sprintf(
+			"\n<blockquote expandable>⠀\n⠀  <b>Show description (tap)</b>\n⠀ \n\n%s</blockquote>",
+			description,
 		)
 	}
 	return body

@@ -12,29 +12,13 @@ import (
 )
 
 var bskyURLRegex = regexp.MustCompile(`https?://(?:bsky|fxbsky|vxbsky|bskye|bskyx|bsyy)\.app/profile/([a-zA-Z0-9._:%-]+)/post/([a-zA-Z0-9]+)`)
+var atURIRegex = regexp.MustCompile(`at://(did:[a-z]+:[a-zA-Z0-9._:%-]+)/app\.bsky\.feed\.post/([a-zA-Z0-9]+)`)
 
-type ParsedBlueskyURL struct {
+type ParsedMediaURL struct {
+	Source      string // "bluesky" or "inkbunny"
 	Authority   string
 	Rkey        string
 	OriginalURL string
-}
-
-type ImageInfo struct {
-	Fullsize string
-	Thumb    string
-	Alt      string
-}
-
-type VideoInfo struct {
-	DirectURL    string // com.atproto.sync.getBlob URL for the raw MP4
-	ThumbnailURL string
-	Alt          string
-}
-
-type PostData struct {
-	Images []ImageInfo
-	Video  *VideoInfo
-	Text   string
 }
 
 type BlueskyClient struct {
@@ -49,12 +33,24 @@ func NewBlueskyClient() *BlueskyClient {
 	}
 }
 
-func ParseBlueskyURL(text string) (*ParsedBlueskyURL, error) {
+func ParseMediaURL(text string) (*ParsedMediaURL, error) {
+	if parsed, err := ParseInkbunnyURL(text); err == nil {
+		return parsed, nil
+	}
+	if m := atURIRegex.FindStringSubmatch(text); m != nil {
+		return &ParsedMediaURL{
+			Source:      "bluesky",
+			Authority:   m[1],
+			Rkey:        m[2],
+			OriginalURL: m[0],
+		}, nil
+	}
 	m := bskyURLRegex.FindStringSubmatch(text)
 	if m == nil {
-		return nil, fmt.Errorf("no Bluesky post URL found")
+		return nil, fmt.Errorf("no supported post URL found")
 	}
-	return &ParsedBlueskyURL{
+	return &ParsedMediaURL{
+		Source:      "bluesky",
 		Authority:   m[1],
 		Rkey:        m[2],
 		OriginalURL: m[0],
@@ -76,7 +72,7 @@ func (c *BlueskyClient) ResolveToDID(ctx context.Context, authority string) (str
 	return ident.DID.String(), nil
 }
 
-func (c *BlueskyClient) FetchPost(ctx context.Context, atURI string) (*PostData, error) {
+func (c *BlueskyClient) FetchPost(ctx context.Context, atURI string) (*MediaResult, error) {
 	resp, err := bsky.FeedGetPosts(ctx, c.xrpc, []string{atURI})
 	if err != nil {
 		return nil, fmt.Errorf("fetch post: %w", err)
@@ -85,7 +81,7 @@ func (c *BlueskyClient) FetchPost(ctx context.Context, atURI string) (*PostData,
 		return nil, fmt.Errorf("post not found")
 	}
 	post := resp.Posts[0]
-	data := &PostData{
+	data := &MediaResult{
 		Images: extractImages(post),
 		Video:  extractVideo(post),
 	}
@@ -95,14 +91,14 @@ func (c *BlueskyClient) FetchPost(ctx context.Context, atURI string) (*PostData,
 	return data, nil
 }
 
-func extractImages(post *bsky.FeedDefs_PostView) []ImageInfo {
+func extractImages(post *bsky.FeedDefs_PostView) []MediaImage {
 	if post.Embed == nil {
 		return nil
 	}
-	var imgs []ImageInfo
+	var imgs []MediaImage
 	if iv := post.Embed.EmbedImages_View; iv != nil {
 		for _, img := range iv.Images {
-			imgs = append(imgs, ImageInfo{
+			imgs = append(imgs, MediaImage{
 				Fullsize: img.Fullsize,
 				Thumb:    img.Thumb,
 				Alt:      img.Alt,
@@ -112,7 +108,7 @@ func extractImages(post *bsky.FeedDefs_PostView) []ImageInfo {
 	if rwm := post.Embed.EmbedRecordWithMedia_View; rwm != nil && rwm.Media != nil {
 		if iv := rwm.Media.EmbedImages_View; iv != nil {
 			for _, img := range iv.Images {
-				imgs = append(imgs, ImageInfo{
+				imgs = append(imgs, MediaImage{
 					Fullsize: img.Fullsize,
 					Thumb:    img.Thumb,
 					Alt:      img.Alt,
@@ -123,7 +119,7 @@ func extractImages(post *bsky.FeedDefs_PostView) []ImageInfo {
 	return imgs
 }
 
-func extractVideo(post *bsky.FeedDefs_PostView) *VideoInfo {
+func extractVideo(post *bsky.FeedDefs_PostView) *MediaVideo {
 	feedPost, ok := post.Record.Val.(*bsky.FeedPost)
 	if !ok || feedPost.Embed == nil {
 		return nil
@@ -143,11 +139,10 @@ func extractVideo(post *bsky.FeedDefs_PostView) *VideoInfo {
 	cid := embedVideo.Video.Ref.String()
 	directURL := fmt.Sprintf("https://bsky.social/xrpc/com.atproto.sync.getBlob?did=%s&cid=%s", did, cid)
 
-	vi := &VideoInfo{DirectURL: directURL}
+	vi := &MediaVideo{DirectURL: directURL}
 	if embedVideo.Alt != nil {
 		vi.Alt = *embedVideo.Alt
 	}
-	// Thumbnail from the view if available
 	if post.Embed != nil {
 		if vv := post.Embed.EmbedVideo_View; vv != nil && vv.Thumbnail != nil {
 			vi.ThumbnailURL = *vv.Thumbnail
