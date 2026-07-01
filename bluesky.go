@@ -37,6 +37,9 @@ func ParseMediaURL(text string) (*ParsedMediaURL, error) {
 	if parsed, err := ParseInkbunnyURL(text); err == nil {
 		return parsed, nil
 	}
+	if parsed, err := ParseTwitterURL(text); err == nil {
+		return parsed, nil
+	}
 	if m := atURIRegex.FindStringSubmatch(text); m != nil {
 		return &ParsedMediaURL{
 			Source:      "bluesky",

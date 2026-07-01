@@ -106,7 +106,7 @@ func handleStartCommand(ctx context.Context, b *bot.Bot, msg *models.Message) {
 
 	welcomeText := `👋 Welcome to Bluesky Spoiler Bot!
 
-This bot fetches images from Bluesky and Inkbunny posts and sends them as spoilered media in Telegram.
+This bot fetches images from Bluesky, Twitter/X, and Inkbunny posts and sends them as spoilered media in Telegram.
 
 <b>Usage:</b>
 <code>/spoiler &lt;post URL&gt; [content warning]</code>
@@ -114,13 +114,15 @@ This bot fetches images from Bluesky and Inkbunny posts and sends them as spoile
 
 <b>Examples:</b>
 <code>/spoiler https://bsky.app/profile/username.bsky.social/post/abc123</code>
-<code>/spoiler https://bsky.app/profile/username.bsky.social/post/abc123 body horror</code>
+<code>/spoiler https://x.com/username/status/123456789 body horror</code>
 <code>/spoiler https://inkbunny.net/s/3900461</code>
 <code>/nospoiler https://inkbunny.net/s/3900461 nudity</code>
 
 <b>Supported domains:</b>
 — bsky.app, fxbsky.app, vxbsky.app
 — bskye.app, bskyx.app, bsyy.app
+— x.com, twitter.com
+— fxtwitter.com, vxtwitter.com, fixupx.com
 — inkbunny.net
 — at:// URIs (e.g. <code>at://did:plc:xxx/app.bsky.feed.post/...</code>)
 
@@ -275,7 +277,7 @@ func processMediaURL(ctx context.Context, b *bot.Bot, msg *models.Message, arg s
 	if err != nil {
 		_, err = b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: msg.Chat.ID,
-			Text:   "Please provide a valid post URL (supports bsky.app, fxbsky.app, vxbsky.app, bskye.app, bskyx.app, bsyy.app, inkbunny.net, and at:// URIs).",
+			Text:   "Please provide a valid post URL (supports bsky.app, x.com, twitter.com, inkbunny.net, and at:// URIs).",
 			ReplyParameters: &models.ReplyParameters{
 				MessageID: msg.ID,
 			},
@@ -313,6 +315,21 @@ func processMediaURL(ctx context.Context, b *bot.Bot, msg *models.Message, arg s
 			if _, sendErr := b.SendMessage(ctx, &bot.SendMessageParams{
 				ChatID: msg.Chat.ID,
 				Text:   "Failed to fetch Inkbunny submission.",
+				ReplyParameters: &models.ReplyParameters{
+					MessageID: msg.ID,
+				},
+			}); sendErr != nil {
+				log.Printf("send error notification: %v", sendErr)
+			}
+			return
+		}
+	} else if parsed.Source == "twitter" {
+		mediaResult, err = FetchTweet(ctx, parsed.Rkey)
+		if err != nil {
+			log.Printf("fetch tweet: %v", err)
+			if _, sendErr := b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: msg.Chat.ID,
+				Text:   "Failed to fetch tweet.",
 				ReplyParameters: &models.ReplyParameters{
 					MessageID: msg.ID,
 				},
