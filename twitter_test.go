@@ -86,3 +86,44 @@ func TestParseTweetResponseVideo(t *testing.T) {
 		t.Errorf("Images should be empty for video tweet")
 	}
 }
+
+func TestParseTweetResponseMentions(t *testing.T) {
+	data := []byte(`{"status":{"id":"2071655663516668318","text":"Mask maker: @mjnln274668 #kigurumi https://t.co/test","url":"https://x.com/multikigu/status/2071655663516668318","raw_text":{"text":"Mask maker: @mjnln274668 #kigurumi https://t.co/test","facets":[{"type":"mention","indices":[12,24],"original":"mjnln274668"},{"type":"hashtag","indices":[25,34],"original":"kigurumi"},{"type":"media","indices":[35,52],"id":"123","display":"pic.x.com/test","original":"https://t.co/test","replacement":"https://x.com/multikigu/status/2071655663516668318/video/1"}]},"media":{"photos":[],"videos":[{"url":"https://video.twimg.com/test.mp4","thumbnail_url":"https://pbs.twimg.com/thumb.jpg","width":720,"height":1280}]},"author":{"name":"Multikigu","screen_name":"multikigu","url":"https://x.com/multikigu"}},"code":200}`)
+
+	result, err := parseTweetResponse(data)
+	if err != nil {
+		t.Fatalf("parseTweetResponse: %v", err)
+	}
+	expected := `Mask maker: <a href="https://x.com/mjnln274668">@mjnln274668</a> #kigurumi `
+	if result.Text != expected {
+		t.Errorf("Text = %q, want %q", result.Text, expected)
+	}
+}
+
+func TestFormatTweetText(t *testing.T) {
+	raw := struct {
+		Text   string `json:"text"`
+		Facets []struct {
+			Type string `json:"type"`
+			Indices [2]int `json:"indices"`
+			Original string `json:"original"`
+		} `json:"facets"`
+	}{
+		Text: "Hello @user1 and @user2! <script> #tag https://t.co/abc",
+		Facets: []struct {
+			Type string `json:"type"`
+			Indices [2]int `json:"indices"`
+			Original string `json:"original"`
+		}{
+			{Type: "mention", Indices: [2]int{6, 12}, Original: "user1"},
+			{Type: "mention", Indices: [2]int{17, 23}, Original: "user2"},
+			{Type: "hashtag", Indices: [2]int{34, 38}, Original: "tag"},
+			{Type: "media", Indices: [2]int{39, 56}, Original: "https://t.co/abc"},
+		},
+	}
+	result := formatTweetText(raw)
+	expected := `Hello <a href="https://x.com/user1">@user1</a> and <a href="https://x.com/user2">@user2</a>! &lt;script&gt; #tag `
+	if result != expected {
+		t.Errorf("formatTweetText = %q, want %q", result, expected)
+	}
+}

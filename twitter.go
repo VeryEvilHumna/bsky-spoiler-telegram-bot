@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"regexp"
+	"sort"
 )
 
 var twitterURLRegex = regexp.MustCompile(`https?://(?:x|twitter|fxtwitter|vxtwitter|fixupx|stupidpenisx|cunnyx|skibidix|girlcockx)\.com/([a-zA-Z0-9_]+)/status/(\d+)`)
@@ -55,6 +57,14 @@ func parseTweetResponse(data []byte) (*MediaResult, error) {
 			ID   string `json:"id"`
 			Text string `json:"text"`
 			URL  string `json:"url"`
+			RawText struct {
+				Text   string `json:"text"`
+				Facets []struct {
+					Type string `json:"type"`
+					Indices [2]int `json:"indices"`
+					Original string `json:"original"`
+				} `json:"facets"`
+			} `json:"raw_text"`
 			Media struct {
 				Photos []struct {
 					URL    string `json:"url"`
@@ -84,8 +94,16 @@ func parseTweetResponse(data []byte) (*MediaResult, error) {
 	}
 
 	status := resp.Status
+
+	var tweetText string
+	if status.RawText.Text != "" {
+		tweetText = formatTweetText(status.RawText)
+	} else {
+		tweetText = html.EscapeString(status.Text)
+	}
+
 	result := &MediaResult{
-		Text:         status.Text,
+		Text:         tweetText,
 		Author:       status.Author.Name,
 		AuthorURL:    status.Author.URL,
 		SubmissionURL: status.URL,
@@ -107,4 +125,57 @@ func parseTweetResponse(data []byte) (*MediaResult, error) {
 	}
 
 	return result, nil
+}
+
+func formatTweetText(raw struct {
+	Text   string `json:"text"`
+	Facets []struct {
+		Type string `json:"type"`
+		Indices [2]int `json:"indices"`
+		Original string `json:"original"`
+	} `json:"facets"`
+}) string {
+	text := raw.Text
+	if len(raw.Facets) == 0 {
+		return html.EscapeString(text)
+	}
+
+	type span struct {
+		start int
+		end   int
+		html  string
+	}
+	var spans []span
+	for _, f := range raw.Facets {
+		switch f.Type {
+		case "mention":
+			spans = append(spans, span{
+				start: f.Indices[0],
+				end:   f.Indices[1],
+				html:  fmt.Sprintf(`<a href="https://x.com/%s">@%s</a>`, f.Original, f.Original),
+			})
+		case "media":
+			spans = append(spans, span{
+				start: f.Indices[0],
+				end:   f.Indices[1],
+				html:  "",
+			})
+		}
+	}
+
+	sort.Slice(spans, func(i, j int) bool { return spans[i].start < spans[j].start })
+
+	var result []byte
+	pos := 0
+	for _, s := range spans {
+		if s.start > pos {
+			result = append(result, html.EscapeString(text[pos:s.start])...)
+		}
+		result = append(result, s.html...)
+		pos = s.end
+	}
+	if pos < len(text) {
+		result = append(result, html.EscapeString(text[pos:])...)
+	}
+	return string(result)
 }
