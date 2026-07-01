@@ -9,7 +9,7 @@ import (
 	"regexp"
 )
 
-var twitterURLRegex = regexp.MustCompile(`https?://(?:x|twitter|fxtwitter|vxtwitter|fixupx)\.com/([a-zA-Z0-9_]+)/status/(\d+)`)
+var twitterURLRegex = regexp.MustCompile(`https?://(?:x|twitter|fxtwitter|vxtwitter|fixupx|stupidpenisx|cunnyx|skibidix|girlcockx)\.com/([a-zA-Z0-9_]+)/status/(\d+)`)
 
 func ParseTwitterURL(text string) (*ParsedMediaURL, error) {
 	m := twitterURLRegex.FindStringSubmatch(text)

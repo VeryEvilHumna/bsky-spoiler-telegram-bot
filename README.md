@@ -20,7 +20,7 @@ This bot listens for `/spoiler` or `/nospoiler` commands followed by a post URL.
 - Supports multiple images in the post
 - Supported domains:
   - Bluesky: bsky.app, fxbsky.app, vxbsky.app, bskye.app, bskyx.app, bsyy.app
-  - Twitter/X: x.com, twitter.com, fxtwitter.com, vxtwitter.com, fixupx.com
+  - Twitter/X: x.com, twitter.com, fxtwitter.com, vxtwitter.com, fixupx.com, stupidpenisx.com, cunnyx.com, skibidix.com, girlcockx.com
   - Inkbunny: inkbunny.net
   - AT URIs: `at://did:plc:xxx/app.bsky.feed.post/...`
 - Automatic deletion of the command message (requires permission to delete messages in chat)

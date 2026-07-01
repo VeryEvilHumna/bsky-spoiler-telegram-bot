@@ -123,6 +123,7 @@ This bot fetches images from Bluesky, Twitter/X, and Inkbunny posts and sends th
 — bskye.app, bskyx.app, bsyy.app
 — x.com, twitter.com
 — fxtwitter.com, vxtwitter.com, fixupx.com
+— stupidpenisx.com, cunnyx.com, skibidix.com, girlcockx.com
 — inkbunny.net
 — at:// URIs (e.g. <code>at://did:plc:xxx/app.bsky.feed.post/...</code>)
 
@@ -277,7 +278,7 @@ func processMediaURL(ctx context.Context, b *bot.Bot, msg *models.Message, arg s
 	if err != nil {
 		_, err = b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: msg.Chat.ID,
-			Text:   "Please provide a valid post URL (supports bsky.app, x.com, twitter.com, inkbunny.net, and at:// URIs).",
+			Text:   "Please provide a valid post URL (supports bsky.app, x.com, twitter.com, fxtwitter.com, vxtwitter.com, fixupx.com, inkbunny.net, and at:// URIs).",
 			ReplyParameters: &models.ReplyParameters{
 				MessageID: msg.ID,
 			},
