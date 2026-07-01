@@ -104,6 +104,7 @@ func parseTweetResponse(data []byte) (*MediaResult, error) {
 
 	result := &MediaResult{
 		Text:         tweetText,
+		TextIsHTML:   true,
 		Author:       status.Author.Name,
 		AuthorURL:    status.Author.URL,
 		SubmissionURL: status.URL,
@@ -152,7 +153,7 @@ func formatTweetText(raw struct {
 			spans = append(spans, span{
 				start: f.Indices[0],
 				end:   f.Indices[1],
-				html:  fmt.Sprintf(`<a href="https://x.com/%s">@%s</a>`, f.Original, f.Original),
+				html:  fmt.Sprintf(`<b><a href="https://x.com/%s">@%s</a></b>`, f.Original, f.Original),
 			})
 		case "media":
 			spans = append(spans, span{

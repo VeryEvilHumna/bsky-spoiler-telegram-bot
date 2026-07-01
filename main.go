@@ -396,7 +396,7 @@ func processMediaURL(ctx context.Context, b *bot.Bot, msg *models.Message, arg s
 	if parsed.Source == "inkbunny" {
 		caption = buildInkbunnyCaption(msg.From.FirstName, msg.From.Username, origFirstName, origUsername, mediaResult.Title, mediaResult.Author, mediaResult.AuthorURL, mediaResult.SubmissionURL, cwText, mediaResult.Text, hasSpoiler)
 	} else {
-		caption = buildCaption(msg.From.FirstName, msg.From.Username, origFirstName, origUsername, parsed.OriginalURL, cwText, mediaResult.Text, hasSpoiler)
+		caption = buildCaption(msg.From.FirstName, msg.From.Username, origFirstName, origUsername, parsed.OriginalURL, cwText, mediaResult.Text, hasSpoiler, mediaResult.TextIsHTML)
 	}
 
 	if mediaResult.Video != nil {
@@ -813,7 +813,7 @@ func handleMessageReaction(ctx context.Context, b *bot.Bot, reaction *models.Mes
 	}
 }
 
-func buildCaption(firstName, username, origFirstName, origUsername, originalURL, cwText, postText string, hasSpoiler bool) string {
+func buildCaption(firstName, username, origFirstName, origUsername, originalURL, cwText, postText string, hasSpoiler, textIsHTML bool) string {
 	var body string
 	if origUsername != "" && origUsername != username {
 		body = fmt.Sprintf(
@@ -841,9 +841,13 @@ func buildCaption(firstName, username, origFirstName, origUsername, originalURL,
 		}
 	}
 	if postText != "" {
+		text := postText
+		if !textIsHTML {
+			text = html.EscapeString(postText)
+		}
 		body += fmt.Sprintf(
 			"\n<blockquote expandable>⠀\n⠀  <b>Show post text (tap)</b>\n⠀ \n\n%s</blockquote>",
-			html.EscapeString(postText),
+			text,
 		)
 	}
 	return body

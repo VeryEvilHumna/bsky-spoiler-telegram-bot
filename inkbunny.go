@@ -32,6 +32,7 @@ type MediaResult struct {
 	Images       []MediaImage
 	Video        *MediaVideo
 	Text         string
+	TextIsHTML   bool
 	Title        string
 	Author       string
 	AuthorURL    string

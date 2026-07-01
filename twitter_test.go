@@ -94,7 +94,7 @@ func TestParseTweetResponseMentions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseTweetResponse: %v", err)
 	}
-	expected := `Mask maker: <a href="https://x.com/mjnln274668">@mjnln274668</a> #kigurumi `
+	expected := `Mask maker: <b><a href="https://x.com/mjnln274668">@mjnln274668</a></b> #kigurumi `
 	if result.Text != expected {
 		t.Errorf("Text = %q, want %q", result.Text, expected)
 	}
@@ -122,7 +122,7 @@ func TestFormatTweetText(t *testing.T) {
 		},
 	}
 	result := formatTweetText(raw)
-	expected := `Hello <a href="https://x.com/user1">@user1</a> and <a href="https://x.com/user2">@user2</a>! &lt;script&gt; #tag `
+	expected := `Hello <b><a href="https://x.com/user1">@user1</a></b> and <b><a href="https://x.com/user2">@user2</a></b>! &lt;script&gt; #tag `
 	if result != expected {
 		t.Errorf("formatTweetText = %q, want %q", result, expected)
 	}
