@@ -5,7 +5,7 @@ import "time"
 const (
 	maxImagesPerPost    = 10
 	autoDeleteDelay     = 10 * time.Second
-	promptDeleteDelay   = 30 * time.Second
+	promptDeleteDelay   = 10 * time.Second
 	httpTimeout         = 120 * time.Second
 	inkbunnyReferrer    = "https://inkbunny.net/"
 	telegramGroupPrefix = "-100"
