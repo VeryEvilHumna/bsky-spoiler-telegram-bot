@@ -9,7 +9,7 @@ const (
 	httpTimeout         = 120 * time.Second
 	inkbunnyReferrer    = "https://inkbunny.net/"
 	telegramGroupPrefix = "-100"
-	telegramGroupIDBase = 1_000_000_000
+	telegramGroupIDBase = 1_000_000_000_000
 )
 
 const welcomeText = `👋 Welcome to Bluesky Spoiler Bot!
