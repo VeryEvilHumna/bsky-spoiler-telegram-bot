@@ -33,7 +33,7 @@ func FetchTweet(ctx context.Context, tweetID string) (*MediaResult, error) {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch tweet: %w", err)
 	}
@@ -103,10 +103,10 @@ func parseTweetResponse(data []byte) (*MediaResult, error) {
 	}
 
 	result := &MediaResult{
-		Text:         tweetText,
-		TextIsHTML:   true,
-		Author:       status.Author.Name,
-		AuthorURL:    status.Author.URL,
+		Text:          tweetText,
+		TextIsHTML:    true,
+		Author:        status.Author.Name,
+		AuthorURL:     status.Author.URL,
 		SubmissionURL: status.URL,
 	}
 

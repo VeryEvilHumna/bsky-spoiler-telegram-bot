@@ -14,13 +14,6 @@ import (
 var bskyURLRegex = regexp.MustCompile(`https?://(?:bsky|fxbsky|vxbsky|bskye|bskyx|bsyy)\.app/profile/([a-zA-Z0-9._:%-]+)/post/([a-zA-Z0-9]+)`)
 var atURIRegex = regexp.MustCompile(`at://(did:[a-z]+:[a-zA-Z0-9._:%-]+)/app\.bsky\.feed\.post/([a-zA-Z0-9]+)`)
 
-type ParsedMediaURL struct {
-	Source      string // "bluesky" or "inkbunny"
-	Authority   string
-	Rkey        string
-	OriginalURL string
-}
-
 type BlueskyClient struct {
 	xrpc      *xrpc.Client
 	directory identity.Directory

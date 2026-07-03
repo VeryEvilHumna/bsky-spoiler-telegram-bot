@@ -7,6 +7,11 @@
 *.dll
 *.so
 *.dylib
+bsky-inline-spoiler
+bsky-spoiler-telegram-bot
+
+# Misc
+*.jpg
 
 # Test binary, built with `go test -c`
 *.test

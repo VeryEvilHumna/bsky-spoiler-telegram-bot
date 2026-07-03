@@ -15,30 +15,6 @@ import (
 
 var inkbunnyURLRegex = regexp.MustCompile(`https?://inkbunny\.net/s/(\d+)`)
 
-type MediaImage struct {
-	Fullsize      string
-	Thumb         string
-	Alt           string
-	NeedsDownload bool
-}
-
-type MediaVideo struct {
-	DirectURL    string
-	ThumbnailURL string
-	Alt          string
-}
-
-type MediaResult struct {
-	Images       []MediaImage
-	Video        *MediaVideo
-	Text         string
-	TextIsHTML   bool
-	Title        string
-	Author       string
-	AuthorURL    string
-	SubmissionURL string
-}
-
 type InkbunnyClient struct {
 	username string
 	password string
@@ -51,7 +27,7 @@ func NewInkbunnyClient(username, password string) *InkbunnyClient {
 	return &InkbunnyClient{
 		username: username,
 		password: password,
-		http:     &http.Client{},
+		http:     httpClient,
 	}
 }
 
@@ -122,7 +98,6 @@ func (c *InkbunnyClient) FetchSubmission(ctx context.Context, submissionID strin
 		return nil, err
 	}
 
-	// Retry once on expired SID (error code 2)
 	if isSIDError(data) {
 		c.sid = ""
 		if err := c.ensureSID(ctx); err != nil {
@@ -191,10 +166,10 @@ func (c *InkbunnyClient) parseSubmissionResponse(data []byte) (*MediaResult, err
 
 	sub := resp.Submissions[0]
 	result := &MediaResult{
-		Text:         ConvertBBCodeToTelegram(sub.Description),
-		Title:        sub.Title,
-		Author:       sub.Username,
-		AuthorURL:    fmt.Sprintf("https://inkbunny.net/%s", sub.Username),
+		Text:          ConvertBBCodeToTelegram(sub.Description),
+		Title:         sub.Title,
+		Author:        sub.Username,
+		AuthorURL:     fmt.Sprintf("https://inkbunny.net/%s", sub.Username),
 		SubmissionURL: fmt.Sprintf("https://inkbunny.net/s/%s", sub.SubmissionID),
 	}
 
@@ -219,23 +194,4 @@ func (c *InkbunnyClient) parseSubmissionResponse(data []byte) (*MediaResult, err
 	}
 
 	return result, nil
-}
-
-func downloadWithReferrer(ctx context.Context, fileURL, referrer string) (io.ReadCloser, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fileURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	if referrer != "" {
-		req.Header.Set("Referer", referrer)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("download: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
-		return nil, fmt.Errorf("download failed: status %d", resp.StatusCode)
-	}
-	return resp.Body, nil
 }

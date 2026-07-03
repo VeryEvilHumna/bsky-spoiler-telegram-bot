@@ -42,6 +42,41 @@ var bbStripAttrTags = []string{"color", "size", "font"}
 
 var bbStripSimpleTags = []string{"center", "left", "right", "highlight", "heading"}
 
+type bbCompiledTag struct {
+	open  *regexp.Regexp
+	close *regexp.Regexp
+}
+
+var bbSimpleTagRegexes = func() map[string]bbCompiledTag {
+	m := make(map[string]bbCompiledTag)
+	for tag := range bbSimpleTags {
+		m[tag] = bbCompiledTag{
+			open:  regexp.MustCompile(`(?i)\[` + tag + `\]`),
+			close: regexp.MustCompile(`(?i)\[\/` + tag + `\]`),
+		}
+	}
+	return m
+}()
+
+var bbStripAttrRegexes = func() []*regexp.Regexp {
+	res := make([]*regexp.Regexp, len(bbStripAttrTags))
+	for i, tag := range bbStripAttrTags {
+		res[i] = regexp.MustCompile(`(?i)\[` + tag + `=[^\]]+\](.*?)\[/` + tag + `\]`)
+	}
+	return res
+}()
+
+var bbStripSimpleRegexes = func() []bbCompiledTag {
+	res := make([]bbCompiledTag, len(bbStripSimpleTags))
+	for i, tag := range bbStripSimpleTags {
+		res[i] = bbCompiledTag{
+			open:  regexp.MustCompile(`(?i)\[` + tag + `\]`),
+			close: regexp.MustCompile(`(?i)\[\/` + tag + `\]`),
+		}
+	}
+	return res
+}()
+
 // ConvertBBCodeToTelegram converts BB code markup to Telegram-compatible HTML.
 func ConvertBBCodeToTelegram(bbcode string) string {
 	s := html.EscapeString(bbcode)
@@ -49,11 +84,10 @@ func ConvertBBCodeToTelegram(bbcode string) string {
 	s = processLists(s)
 
 	for bbTag, def := range bbSimpleTags {
-		openRe := regexp.MustCompile(`(?i)\[` + bbTag + `\]`)
-		closeRe := regexp.MustCompile(`(?i)\[\/` + bbTag + `\]`)
-		if openRe.MatchString(s) && closeRe.MatchString(s) {
-			s = openRe.ReplaceAllString(s, def.openHTML)
-			s = closeRe.ReplaceAllString(s, def.closeHTML)
+		re := bbSimpleTagRegexes[bbTag]
+		if re.open.MatchString(s) && re.close.MatchString(s) {
+			s = re.open.ReplaceAllString(s, def.openHTML)
+			s = re.close.ReplaceAllString(s, def.closeHTML)
 		}
 	}
 
@@ -70,16 +104,14 @@ func ConvertBBCodeToTelegram(bbcode string) string {
 		return fmt.Sprintf("<a href=\"%s\">%s</a>", url, parts[1])
 	})
 
-	for _, tag := range bbStripAttrTags {
-		re := regexp.MustCompile(`(?i)\[` + tag + `=[^\]]+\](.*?)\[/` + tag + `\]`)
-		s = re.ReplaceAllString(s, "$1")
+	for i := range bbStripAttrTags {
+		s = bbStripAttrRegexes[i].ReplaceAllString(s, "$1")
 	}
 
-	for _, tag := range bbStripSimpleTags {
-		openRe := regexp.MustCompile(`(?i)\[` + tag + `\]`)
-		closeRe := regexp.MustCompile(`(?i)\[\/` + tag + `\]`)
-		s = openRe.ReplaceAllString(s, "")
-		s = closeRe.ReplaceAllString(s, "")
+	for i := range bbStripSimpleTags {
+		re := bbStripSimpleRegexes[i]
+		s = re.open.ReplaceAllString(s, "")
+		s = re.close.ReplaceAllString(s, "")
 	}
 
 	s = strings.ReplaceAll(s, "[hr]", "───")
