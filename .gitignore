@@ -38,3 +38,5 @@ message_metadata.db
 # Editor/IDE
 # .idea/
 # .vscode/
+.opencode
+opencode.json
