@@ -1,15 +1,16 @@
 # bsky-spoiler-telegram-bot
 
-A Telegram bot that gets images/video from Bluesky, Twitter/X, and Inkbunny posts and sends them in Telegram chats, optionally blurred as spoilers.
-
 Hosted version available: [t.me/bskyWithSpoilerBot](https://t.me/bskyWithSpoilerBot). Just add it in your group and give permission to delete messages
 
 ## Description
 
-This bot listens for `/spoiler` or `/nospoiler` commands followed by a post URL. It fetches the images or video from the specified post and sends them in the Telegram chat, then deletes the original command message to keep the chat clean. `/spoiler` blurs the media until tapped; `/nospoiler` sends it unblurred. Either way, the post text is tucked away under a collapsible blockquote.
+A Telegram bot that gets images/video from Bluesky, Twitter/X, and Inkbunny posts and sends them in Telegram chats, optionally blurred as spoilers.
+
+Just send a message with a supported link and the bot will ask if you want to embed it — no commands needed. You can also use `/spoiler` or `/nospoiler` for more control.
 
 ## Features
 
+- **Auto-embed prompt** — just send a message with a supported link and the bot silently replies with Spoiler/No Spoiler buttons (no command needed)
 - `/spoiler` — sends media blurred until tapped
 - `/nospoiler` — sends media unblurred; post text still collapsed
 - Multi-platform support:
@@ -23,7 +24,11 @@ This bot listens for `/spoiler` or `/nospoiler` commands followed by a post URL.
   - Twitter/X: x.com, twitter.com, fxtwitter.com, vxtwitter.com, fixupx.com, stupidpenisx.com, cunnyx.com, skibidix.com, girlcockx.com
   - Inkbunny: inkbunny.net
   - AT URIs: `at://did:plc:xxx/app.bsky.feed.post/...`
-- Automatic deletion of the command message (requires permission to delete messages in chat)
+- Automatic cleanup:
+  - Command messages are deleted after processing
+  - Embed prompt auto-deletes after 30 seconds if ignored
+  - Clicking the embed button on your own link-only message deletes the original too
+  - Replying with `/spoiler` or `/nospoiler` to your own link-only message also deletes the original
 - Optional content warning text appended after the post link in the caption
 - Post text revealed as a collapsible blockquote — tap to expand and see what the post said
 - Smart reaction notifications: get silent DM notifications when someone reacts to your post
@@ -76,33 +81,47 @@ This bot listens for `/spoiler` or `/nospoiler` commands followed by a post URL.
 
 1. Add the bot to your Telegram chat or group.
 2. Ensure the bot has permission to delete messages (for automatic cleanup).
-3. Optionally, disable privacy mode (via [@BotFather](https://t.me/botfather)) or make the bot an admin to enable the two-step link flow (send the command alone, bot asks for the URL next).
-4. Use one of the commands:
+3. Optionally, disable privacy mode (via [@BotFather](https://t.me/botfather)) or make the bot an admin to enable the two-step link flow and auto-embed detection.
+
+### Auto-embed (recommended)
+
+Just send a message containing a supported link. The bot will silently reply with two buttons:
+
+- **Spoiler** — embeds the post with blurred media
+- **No Spoiler** — embeds the post unblurred
+
+The prompt auto-deletes after 30 seconds. If you click the button on your own link-only message, the bot also deletes the original message to keep the chat clean.
+
+### Commands
 
 ```
-/spoiler <Bluesky post URL> [content warning]
-/nospoiler <Bluesky post URL> [content warning]
+/spoiler <post URL> [content warning]
+/nospoiler <post URL> [content warning]
 ```
 
 Examples:
 
 ```
 /spoiler https://bsky.app/profile/username.bsky.social/post/abc123def456
-/spoiler https://bsky.app/profile/username.bsky.social/post/abc123def456 body horror
-/nospoiler https://bsky.app/profile/username.bsky.social/post/abc123def456
-/nospoiler https://bsky.app/profile/username.bsky.social/post/abc123def456 cute kitty video
+/spoiler https://x.com/username/status/123456789 body horror
+/nospoiler https://inkbunny.net/s/3900461
+/nospoiler https://inkbunny.net/s/3900461 nudity
 ```
 
 The bot will:
 
 - React with a 👌 emoji to acknowledge the command
-- Fetch the images or video from the Bluesky post
+- Fetch the images or video from the post
 - Send them in the chat (blurred with `/spoiler`, unblurred with `/nospoiler`), with the post text attached as a collapsible blockquote
 - Delete the original command message (requires permission to delete messages in chat)
 - If sent without a URL, ask for the link in a follow-up message — then process it and clean up all related messages automatically (requires access to all messages)
-- Send you silent DM notifications when someone reacts to your post
-  - Notifications update intelligently (edits if still last message, sends new otherwise)
-  - When users unreact: shows "reacted and removed", auto-deletes after 30s if no new reaction
+- If you reply with `/spoiler` or `/nospoiler` to your own message that starts with a link, the original message is also deleted
+
+### Reactions
+
+- Get silent DM notifications when someone reacts to your embedded posts
+- Notifications update intelligently (edits if still last message, sends new otherwise)
+- When users unreact: shows "reacted and removed", auto-deletes after 30s if no new reaction
 
 ## Dependencies
 
