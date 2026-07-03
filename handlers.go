@@ -110,8 +110,11 @@ func handlePlainMessage(ctx context.Context, b *bot.Bot, msg *models.Message, bs
 			return
 		}
 		promptMsg, sendErr := b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID:    msg.Chat.ID,
-			Text:      "Would you like for me to embed that link?",
+			ChatID: msg.Chat.ID,
+			Text: fmt.Sprintf(`
+Would you like for me to embed that link?
+
+🫧 This message would dissapear in %d seconds`, promptDeleteDelay/time.Second),
 			ParseMode: models.ParseModeHTML,
 			ReplyParameters: &models.ReplyParameters{
 				MessageID: msg.ID,
@@ -136,7 +139,7 @@ func handlePlainMessage(ctx context.Context, b *bot.Bot, msg *models.Message, bs
 			OriginalMsgID: msg.ID,
 			UserID:        msg.From.ID,
 			UserFirstName: msg.From.FirstName,
-			UserUsername:   msg.From.Username,
+			UserUsername:  msg.From.Username,
 			MsgText:       msg.Text,
 		})
 		go func() {
@@ -263,7 +266,7 @@ func processMediaURL(ctx context.Context, b *bot.Bot, msg *models.Message, arg s
 		FirstName:     msg.From.FirstName,
 		Username:      msg.From.Username,
 		OrigFirstName: origFirstName,
-		OrigUsername:   origUsername,
+		OrigUsername:  origUsername,
 		CWText:        cwText,
 		HasSpoiler:    hasSpoiler,
 		PostText:      mediaResult.Text,
