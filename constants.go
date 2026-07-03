@@ -22,9 +22,9 @@ This bot fetches images from Bluesky, Twitter/X, and Inkbunny posts and sends th
 
 <b>Examples:</b>
 <code>/spoiler https://bsky.app/profile/username.bsky.social/post/abc123</code>
-<code>/spoiler https://x.com/username/status/123456789 body horror</code>
-<code>/spoiler https://inkbunny.net/s/3900461</code>
-<code>/nospoiler https://inkbunny.net/s/3900461 nudity</code>
+<code>/spoiler https://x.com/spicy_mochi/status/2072719566233284830 body horror</code>
+<code>/spoiler https://inkbunny.net/s/525390</code>
+<code>/nospoiler https://inkbunny.net/s/525390 nudity</code>
 
 <b>Supported domains:</b>
 — bsky.app, fxbsky.app, vxbsky.app

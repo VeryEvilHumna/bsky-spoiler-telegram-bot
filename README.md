@@ -103,9 +103,9 @@ Examples:
 
 ```
 /spoiler https://bsky.app/profile/username.bsky.social/post/abc123def456
-/spoiler https://x.com/username/status/123456789 body horror
-/nospoiler https://inkbunny.net/s/3900461
-/nospoiler https://inkbunny.net/s/3900461 nudity
+/spoiler https://x.com/spicy_mochi/status/2072719566233284830 body horror
+/nospoiler https://inkbunny.net/s/525390
+/nospoiler https://inkbunny.net/s/525390 nudity
 ```
 
 The bot will:
