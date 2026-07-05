@@ -101,6 +101,17 @@ func extractImages(post *bsky.FeedDefs_PostView) []MediaImage {
 			})
 		}
 	}
+	if gv := post.Embed.EmbedGallery_View; gv != nil {
+		for _, item := range gv.Items {
+			if img := item.EmbedGallery_ViewImage; img != nil {
+				imgs = append(imgs, MediaImage{
+					Fullsize: img.Fullsize,
+					Thumb:    img.Thumbnail,
+					Alt:      img.Alt,
+				})
+			}
+		}
+	}
 	if rwm := post.Embed.EmbedRecordWithMedia_View; rwm != nil && rwm.Media != nil {
 		if iv := rwm.Media.EmbedImages_View; iv != nil {
 			for _, img := range iv.Images {
@@ -109,6 +120,17 @@ func extractImages(post *bsky.FeedDefs_PostView) []MediaImage {
 					Thumb:    img.Thumb,
 					Alt:      img.Alt,
 				})
+			}
+		}
+		if gv := rwm.Media.EmbedGallery_View; gv != nil {
+			for _, item := range gv.Items {
+				if img := item.EmbedGallery_ViewImage; img != nil {
+					imgs = append(imgs, MediaImage{
+						Fullsize: img.Fullsize,
+						Thumb:    img.Thumbnail,
+						Alt:      img.Alt,
+					})
+				}
 			}
 		}
 	}
