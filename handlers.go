@@ -87,7 +87,7 @@ func handleMediaCommand(ctx context.Context, b *bot.Bot, msg *models.Message, bs
 				if msg.ReplyToMessage.From != nil {
 					origUser = msg.ReplyToMessage.From
 				}
-				processMediaURL(ctx, b, msg, parsed.OriginalURL, hasSpoiler, bskyClient, inkbunnyClient, origUser, true)
+				processMediaURL(ctx, b, msg, parsed.OriginalURL, hasSpoiler, bskyClient, inkbunnyClient, origUser, true, 0)
 				if msg.ReplyToMessage.From != nil && msg.From.ID == msg.ReplyToMessage.From.ID {
 					if strings.HasPrefix(strings.TrimSpace(msg.ReplyToMessage.Text), parsed.OriginalURL) {
 						deleteSilently(ctx, b, msg.Chat.ID, msg.ReplyToMessage.ID)
@@ -126,7 +126,7 @@ func handleMediaCommand(ctx context.Context, b *bot.Bot, msg *models.Message, bs
 		return
 	}
 
-	processMediaURL(ctx, b, msg, arg, hasSpoiler, bskyClient, inkbunnyClient, nil, true)
+	processMediaURL(ctx, b, msg, arg, hasSpoiler, bskyClient, inkbunnyClient, nil, true, 0)
 }
 
 func handlePlainMessage(ctx context.Context, b *bot.Bot, msg *models.Message, bskyClient *BlueskyClient, inkbunnyClient *InkbunnyClient) {
@@ -213,10 +213,10 @@ Would you like for me to embed that link?
 	}
 
 	deleteSilently(ctx, b, msg.Chat.ID, pending.BotMsgID, pending.CmdMsgID)
-	processMediaURL(ctx, b, msg, linkText, pending.HasSpoiler, bskyClient, inkbunnyClient, origUser, true)
+	processMediaURL(ctx, b, msg, linkText, pending.HasSpoiler, bskyClient, inkbunnyClient, origUser, true, 0)
 }
 
-func processMediaURL(ctx context.Context, b *bot.Bot, msg *models.Message, arg string, hasSpoiler bool, bskyClient *BlueskyClient, inkbunnyClient *InkbunnyClient, origUser *models.User, deleteOriginal bool) {
+func processMediaURL(ctx context.Context, b *bot.Bot, msg *models.Message, arg string, hasSpoiler bool, bskyClient *BlueskyClient, inkbunnyClient *InkbunnyClient, origUser *models.User, deleteOriginal bool, replyMsgID int) {
 	parsed, err := ParseMediaURL(arg)
 	var cwText string
 	if err == nil {
@@ -314,14 +314,14 @@ func processMediaURL(ctx context.Context, b *bot.Bot, msg *models.Message, arg s
 		if parsed.Source == "inkbunny" {
 			referrer = inkbunnyReferrer
 		}
-		handleVideoPost(ctx, b, msg, mediaResult.Video, caption, hasSpoiler, referrer, deleteOriginal)
+		handleVideoPost(ctx, b, msg, mediaResult.Video, caption, hasSpoiler, referrer, deleteOriginal, replyMsgID)
 		return
 	}
 
-	handleImagePost(ctx, b, msg, mediaResult.Images, caption, hasSpoiler, deleteOriginal)
+	handleImagePost(ctx, b, msg, mediaResult.Images, caption, hasSpoiler, deleteOriginal, replyMsgID)
 }
 
-func handleImagePost(ctx context.Context, b *bot.Bot, msg *models.Message, images []MediaImage, caption string, hasSpoiler bool, deleteOriginal bool) {
+func handleImagePost(ctx context.Context, b *bot.Bot, msg *models.Message, images []MediaImage, caption string, hasSpoiler bool, deleteOriginal bool, replyMsgID int) {
 	var sentMsgIDs []int
 
 	imagesToSend := images
@@ -370,14 +370,18 @@ func handleImagePost(ctx context.Context, b *bot.Bot, msg *models.Message, image
 		} else {
 			photo = &models.InputFileString{Data: img.Fullsize}
 		}
-		sentMsg, err := b.SendPhoto(ctx, &bot.SendPhotoParams{
+		sendPhotoParams := &bot.SendPhotoParams{
 			ChatID:                msg.Chat.ID,
 			Photo:                 photo,
 			Caption:               caption,
 			ParseMode:             models.ParseModeHTML,
 			HasSpoiler:            hasSpoiler,
 			ShowCaptionAboveMedia: true,
-		})
+		}
+		if replyMsgID > 0 {
+			sendPhotoParams.ReplyParameters = &models.ReplyParameters{MessageID: replyMsgID}
+		}
+		sentMsg, err := b.SendPhoto(ctx, sendPhotoParams)
 		if err != nil {
 			log.Printf("SendPhoto failed, retrying as document: %v", err)
 			if localFile != nil {
@@ -392,12 +396,16 @@ func handleImagePost(ctx context.Context, b *bot.Bot, msg *models.Message, image
 					return
 				}
 			}
-			sentMsg, err = b.SendDocument(ctx, &bot.SendDocumentParams{
+			sendDocFallbackParams := &bot.SendDocumentParams{
 				ChatID:    msg.Chat.ID,
 				Document:  photo,
 				Caption:   caption,
 				ParseMode: models.ParseModeHTML,
-			})
+			}
+			if replyMsgID > 0 {
+				sendDocFallbackParams.ReplyParameters = &models.ReplyParameters{MessageID: replyMsgID}
+			}
+			sentMsg, err = b.SendDocument(ctx, sendDocFallbackParams)
 			if err != nil {
 				log.Printf("SendDocument: %v", err)
 				if !img.NeedsDownload && cl > 0 {
@@ -487,10 +495,14 @@ func handleImagePost(ctx context.Context, b *bot.Bot, msg *models.Message, image
 			return
 		}
 
-		sentMsgs, err := b.SendMediaGroup(ctx, &bot.SendMediaGroupParams{
+		sendMediaGroupParams := &bot.SendMediaGroupParams{
 			ChatID: msg.Chat.ID,
 			Media:  media,
-		})
+		}
+		if replyMsgID > 0 {
+			sendMediaGroupParams.ReplyParameters = &models.ReplyParameters{MessageID: replyMsgID}
+		}
+		sentMsgs, err := b.SendMediaGroup(ctx, sendMediaGroupParams)
 		if err != nil {
 			log.Printf("SendMediaGroup failed, retrying as documents: %v", err)
 			for i, img := range imagesToSend {
@@ -520,12 +532,16 @@ func handleImagePost(ctx context.Context, b *bot.Bot, msg *models.Message, image
 				if len(sentMsgIDs) == 0 {
 					docCaption = caption
 				}
-				sentMsg, sendErr := b.SendDocument(ctx, &bot.SendDocumentParams{
+				sendDocParams := &bot.SendDocumentParams{
 					ChatID:    msg.Chat.ID,
 					Document:  doc,
 					Caption:   docCaption,
 					ParseMode: models.ParseModeHTML,
-				})
+				}
+				if replyMsgID > 0 && len(sentMsgIDs) == 0 {
+					sendDocParams.ReplyParameters = &models.ReplyParameters{MessageID: replyMsgID}
+				}
+				sentMsg, sendErr := b.SendDocument(ctx, sendDocParams)
 				if sendErr != nil {
 					log.Printf("SendDocument %d: %v", i, sendErr)
 					continue
@@ -551,7 +567,7 @@ func handleImagePost(ctx context.Context, b *bot.Bot, msg *models.Message, image
 	}
 }
 
-func handleVideoPost(ctx context.Context, b *bot.Bot, msg *models.Message, video *MediaVideo, caption string, hasSpoiler bool, referrer string, deleteOriginal bool) {
+func handleVideoPost(ctx context.Context, b *bot.Bot, msg *models.Message, video *MediaVideo, caption string, hasSpoiler bool, referrer string, deleteOriginal bool, replyMsgID int) {
 	progressMsg, err := b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: msg.Chat.ID,
 		Text:   "⏳ Downloading video...",
@@ -641,7 +657,7 @@ func handleVideoPost(ctx context.Context, b *bot.Bot, msg *models.Message, video
 		ext = ".mp4"
 	}
 
-	sentMsg, err := b.SendVideo(ctx, &bot.SendVideoParams{
+	sendVideoParams := &bot.SendVideoParams{
 		ChatID:                msg.Chat.ID,
 		Video:                 &models.InputFileUpload{Filename: "video" + ext, Data: tmpFile},
 		Caption:               caption,
@@ -649,7 +665,11 @@ func handleVideoPost(ctx context.Context, b *bot.Bot, msg *models.Message, video
 		HasSpoiler:            hasSpoiler,
 		SupportsStreaming:     true,
 		ShowCaptionAboveMedia: true,
-	})
+	}
+	if replyMsgID > 0 {
+		sendVideoParams.ReplyParameters = &models.ReplyParameters{MessageID: replyMsgID}
+	}
+	sentMsg, err := b.SendVideo(ctx, sendVideoParams)
 	if err != nil {
 		log.Printf("SendVideo failed, retrying as document: %v", err)
 		if _, seekErr := tmpFile.Seek(0, 0); seekErr != nil {
@@ -658,12 +678,16 @@ func handleVideoPost(ctx context.Context, b *bot.Bot, msg *models.Message, video
 			sendErrorReply(ctx, b, msg, fmt.Sprintf("Telegram rejected the video: %v", err))
 			return
 		}
-		sentMsg, err = b.SendDocument(ctx, &bot.SendDocumentParams{
+		sendDocFallbackParams := &bot.SendDocumentParams{
 			ChatID:    msg.Chat.ID,
 			Document:  &models.InputFileUpload{Filename: "video" + ext, Data: tmpFile},
 			Caption:   caption,
 			ParseMode: models.ParseModeHTML,
-		})
+		}
+		if replyMsgID > 0 {
+			sendDocFallbackParams.ReplyParameters = &models.ReplyParameters{MessageID: replyMsgID}
+		}
+		sentMsg, err = b.SendDocument(ctx, sendDocFallbackParams)
 		if err != nil {
 			log.Printf("SendDocument: %v", err)
 			deleteProgress()
@@ -730,8 +754,6 @@ func handleEmbedCallback(ctx context.Context, b *bot.Bot, update *models.Update)
 		MessageID: promptMsgID,
 	})
 
-	deleteOriginal := cb.From.ID == embed.UserID && strings.TrimSpace(embed.MsgText) == embed.URL
-
 	senderMsg := &models.Message{
 		ID:   embed.OriginalMsgID,
 		Chat: models.Chat{ID: embed.ChatID},
@@ -744,7 +766,7 @@ func handleEmbedCallback(ctx context.Context, b *bot.Bot, update *models.Update)
 
 	bskyClient := NewBlueskyClient()
 	inkbunnyClient := NewInkbunnyClient(os.Getenv("INKBUNNY_USERNAME"), os.Getenv("INKBUNNY_PASSWORD"))
-	processMediaURL(ctx, b, senderMsg, embed.URL, hasSpoiler, bskyClient, inkbunnyClient, nil, deleteOriginal)
+	processMediaURL(ctx, b, senderMsg, embed.URL, hasSpoiler, bskyClient, inkbunnyClient, nil, false, embed.OriginalMsgID)
 }
 
 func handleMessageReaction(ctx context.Context, b *bot.Bot, reaction *models.MessageReactionUpdated) {
