@@ -157,7 +157,7 @@ func extractVideo(post *bsky.FeedDefs_PostView) *MediaVideo {
 	cid := embedVideo.Video.Ref.String()
 	directURL := fmt.Sprintf("https://bsky.social/xrpc/com.atproto.sync.getBlob?did=%s&cid=%s", did, cid)
 
-	vi := &MediaVideo{DirectURL: directURL}
+	vi := &MediaVideo{DirectURL: directURL, Variants: []VideoVariant{{URL: directURL}}}
 	if embedVideo.Alt != nil {
 		vi.Alt = *embedVideo.Alt
 	}

@@ -3,9 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -15,6 +13,39 @@ import (
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 )
+
+func ptrBool(v bool) *bool       { return &v }
+func ptrString(v string) *string { return &v }
+
+func sendImageLinkFallback(ctx context.Context, b *bot.Bot, msg *models.Message, imageURL string, caption string, sizeMB float64, limitMB int) {
+	text := fmt.Sprintf(
+		"⚠️ Image is too large to upload (%.1f MB, max %d MB). Here's a link instead:\n\n%s",
+		sizeMB, limitMB, imageURL,
+	)
+	if caption != "" {
+		text = caption + "\n\n" + text
+	}
+	if _, err := b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: msg.Chat.ID,
+		Text:   text,
+		LinkPreviewOptions: &models.LinkPreviewOptions{
+			URL:              ptrString(imageURL),
+			PreferLargeMedia: ptrBool(true),
+		},
+		ReplyParameters: &models.ReplyParameters{
+			MessageID: msg.ID,
+		},
+	}); err != nil {
+		log.Printf("send image link fallback: %v", err)
+	}
+}
+
+func sizeLimitForImage(img MediaImage) int64 {
+	if img.NeedsDownload {
+		return telegramMaxUploadSize
+	}
+	return telegramMaxPhotoSize
+}
 
 func handleStartCommand(ctx context.Context, b *bot.Bot, msg *models.Message) {
 	if msg.Chat.Type != "private" {
@@ -305,12 +336,32 @@ func handleImagePost(ctx context.Context, b *bot.Bot, msg *models.Message, image
 
 	if len(imagesToSend) == 1 {
 		img := imagesToSend[0]
+		referrer := ""
+		if img.NeedsDownload {
+			referrer = inkbunnyReferrer
+		}
+		sizeLimit := sizeLimitForImage(img)
+
+		cl, _, headErr := headRequest(ctx, img.Fullsize, referrer)
+		if headErr != nil {
+			log.Printf("HEAD image: %v", headErr)
+		}
+		if cl > 0 && cl > sizeLimit {
+			sizeMB := float64(cl) / (1024 * 1024)
+			sendImageLinkFallback(ctx, b, msg, img.Fullsize, caption, sizeMB, int(sizeLimit/(1024*1024)))
+			if deleteOriginal {
+				deleteCommandMessage(ctx, b, msg)
+			}
+			return
+		}
+
 		var photo models.InputFile
 		var localFile *os.File
 		if img.NeedsDownload {
 			f, cleanup, err := downloadToTempFile(ctx, img.Fullsize, inkbunnyReferrer, "ib-img-*.tmp")
 			if err != nil {
 				log.Printf("download image: %v", err)
+				sendErrorReply(ctx, b, msg, fmt.Sprintf("Failed to download image: %v", err))
 				return
 			}
 			defer cleanup()
@@ -332,6 +383,12 @@ func handleImagePost(ctx context.Context, b *bot.Bot, msg *models.Message, image
 			if localFile != nil {
 				if _, seekErr := localFile.Seek(0, 0); seekErr != nil {
 					log.Printf("seek temp file: %v", seekErr)
+					if !img.NeedsDownload && cl > 0 {
+						sizeMB := float64(cl) / (1024 * 1024)
+						sendImageLinkFallback(ctx, b, msg, img.Fullsize, caption, sizeMB, int(sizeLimit/(1024*1024)))
+					} else {
+						sendErrorReply(ctx, b, msg, fmt.Sprintf("Failed to send image: %v", err))
+					}
 					return
 				}
 			}
@@ -343,20 +400,45 @@ func handleImagePost(ctx context.Context, b *bot.Bot, msg *models.Message, image
 			})
 			if err != nil {
 				log.Printf("SendDocument: %v", err)
+				if !img.NeedsDownload && cl > 0 {
+					sizeMB := float64(cl) / (1024 * 1024)
+					sendImageLinkFallback(ctx, b, msg, img.Fullsize, caption, sizeMB, int(sizeLimit/(1024*1024)))
+				} else {
+					sendErrorReply(ctx, b, msg, fmt.Sprintf("Failed to send image: %v", err))
+				}
 				return
 			}
 		}
 		sentMsgIDs = []int{sentMsg.ID}
 	} else {
-		media := make([]models.InputMedia, len(imagesToSend))
-		var downloadedFiles []*os.File
+		media := make([]models.InputMedia, 0, len(imagesToSend))
+		downloadedByIndex := make(map[int]*os.File)
 		var cleanups []func()
 		defer func() {
 			for _, c := range cleanups {
 				c()
 			}
 		}()
+
+		tooLargeCount := 0
+		downloadFailCount := 0
 		for i, img := range imagesToSend {
+			referrer := ""
+			if img.NeedsDownload {
+				referrer = inkbunnyReferrer
+			}
+			sizeLimit := sizeLimitForImage(img)
+			cl, _, headErr := headRequest(ctx, img.Fullsize, referrer)
+			if headErr != nil {
+				log.Printf("HEAD image %d: %v", i, headErr)
+			}
+			if cl > 0 && cl > sizeLimit {
+				sizeMB := float64(cl) / (1024 * 1024)
+				log.Printf("skipping image %d (%.1f MB exceeds limit)", i, sizeMB)
+				tooLargeCount++
+				continue
+			}
+
 			p := &models.InputMediaPhoto{
 				HasSpoiler:            hasSpoiler,
 				ShowCaptionAboveMedia: true,
@@ -365,21 +447,46 @@ func handleImagePost(ctx context.Context, b *bot.Bot, msg *models.Message, image
 				f, cleanup, err := downloadToTempFile(ctx, img.Fullsize, inkbunnyReferrer, "ib-img-*.tmp")
 				if err != nil {
 					log.Printf("download image %d: %v", i, err)
-					return
+					downloadFailCount++
+					continue
 				}
-				downloadedFiles = append(downloadedFiles, f)
+				downloadedByIndex[i] = f
 				cleanups = append(cleanups, cleanup)
 				p.Media = fmt.Sprintf("attach://img_%d", i)
 				p.MediaAttachment = f
 			} else {
 				p.Media = img.Fullsize
 			}
-			if i == 0 {
+			if len(media) == 0 {
 				p.Caption = caption
 				p.ParseMode = models.ParseModeHTML
 			}
-			media[i] = p
+			media = append(media, p)
 		}
+
+		if tooLargeCount > 0 || downloadFailCount > 0 {
+			var parts []string
+			if tooLargeCount > 0 {
+				parts = append(parts, fmt.Sprintf("%d too large", tooLargeCount))
+			}
+			if downloadFailCount > 0 {
+				parts = append(parts, fmt.Sprintf("%d failed to download", downloadFailCount))
+			}
+			warnMsg := fmt.Sprintf("⚠️ Skipped %s image(s).", strings.Join(parts, ", "))
+			b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: msg.Chat.ID,
+				Text:   warnMsg,
+				ReplyParameters: &models.ReplyParameters{
+					MessageID: msg.ID,
+				},
+			})
+		}
+
+		if len(media) == 0 {
+			sendErrorReply(ctx, b, msg, "No images could be sent (all were too large or failed to download).")
+			return
+		}
+
 		sentMsgs, err := b.SendMediaGroup(ctx, &bot.SendMediaGroupParams{
 			ChatID: msg.Chat.ID,
 			Media:  media,
@@ -387,18 +494,30 @@ func handleImagePost(ctx context.Context, b *bot.Bot, msg *models.Message, image
 		if err != nil {
 			log.Printf("SendMediaGroup failed, retrying as documents: %v", err)
 			for i, img := range imagesToSend {
+				referrer := ""
+				if img.NeedsDownload {
+					referrer = inkbunnyReferrer
+				}
+				sizeLimit := sizeLimitForImage(img)
+				cl, _, _ := headRequest(ctx, img.Fullsize, referrer)
+				if cl > 0 && cl > sizeLimit {
+					continue
+				}
+
 				var doc models.InputFile
-				if img.NeedsDownload && i < len(downloadedFiles) {
-					if _, seekErr := downloadedFiles[i].Seek(0, 0); seekErr != nil {
+				if f, ok := downloadedByIndex[i]; ok {
+					if _, seekErr := f.Seek(0, 0); seekErr != nil {
 						log.Printf("seek temp file %d: %v", i, seekErr)
 						continue
 					}
-					doc = &models.InputFileUpload{Filename: fmt.Sprintf("image_%d.jpg", i), Data: downloadedFiles[i]}
+					doc = &models.InputFileUpload{Filename: fmt.Sprintf("image_%d.jpg", i), Data: f}
+				} else if img.NeedsDownload {
+					continue
 				} else {
 					doc = &models.InputFileString{Data: img.Fullsize}
 				}
 				docCaption := ""
-				if i == 0 {
+				if len(sentMsgIDs) == 0 {
 					docCaption = caption
 				}
 				sentMsg, sendErr := b.SendDocument(ctx, &bot.SendDocumentParams{
@@ -414,6 +533,7 @@ func handleImagePost(ctx context.Context, b *bot.Bot, msg *models.Message, image
 				sentMsgIDs = append(sentMsgIDs, sentMsg.ID)
 			}
 			if len(sentMsgIDs) == 0 {
+				sendErrorReply(ctx, b, msg, "Failed to send any images.")
 				return
 			}
 		} else {
@@ -452,63 +572,104 @@ func handleVideoPost(ctx context.Context, b *bot.Bot, msg *models.Message, video
 		}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, video.DirectURL, nil)
-	if err != nil {
-		log.Printf("create download request: %v", err)
-		deleteProgress()
-		return
+	variants := video.Variants
+	if len(variants) == 0 {
+		variants = []VideoVariant{{URL: video.DirectURL}}
 	}
-	if referrer != "" {
-		req.Header.Set("Referer", referrer)
-	}
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		log.Printf("download video: %v", err)
-		deleteProgress()
-		sendErrorReply(ctx, b, msg, "Failed to download video.")
-		return
-	}
-	defer resp.Body.Close()
 
-	tmpFile, err := os.CreateTemp("", "video-*.mp4")
-	if err != nil {
-		log.Printf("create temp file: %v", err)
-		deleteProgress()
-		return
-	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
+	var tmpFile *os.File
+	var cleanup func()
+	var contentType string
+	tooLargeCount := 0
+	otherFailCount := 0
 
-	if _, err = io.Copy(tmpFile, resp.Body); err != nil {
-		tmpFile.Close()
-		log.Printf("write temp file: %v", err)
-		deleteProgress()
-		sendErrorReply(ctx, b, msg, "Failed to download video.")
-		return
-	}
-	tmpFile.Close()
+	for i, v := range variants {
+		cl, _, headErr := headRequest(ctx, v.URL, referrer)
+		if headErr != nil {
+			log.Printf("HEAD %s: %v", v.URL, headErr)
+			otherFailCount++
+			continue
+		}
+		if cl > 0 && cl > telegramMaxUploadSize {
+			log.Printf("skipping variant %d (%d bytes exceeds %d limit)", i, cl, telegramMaxUploadSize)
+			tooLargeCount++
+			continue
+		}
 
-	f, err := os.Open(tmpPath)
-	if err != nil {
-		log.Printf("open temp file: %v", err)
+		f, dlCleanup, ct, dlErr := downloadWithLimit(ctx, v.URL, referrer, "video-*", telegramMaxUploadSize)
+		if dlErr != nil {
+			log.Printf("download variant %d: %v", i, dlErr)
+			if strings.Contains(dlErr.Error(), "exceeds limit") {
+				tooLargeCount++
+			} else {
+				otherFailCount++
+			}
+			continue
+		}
+
+		tmpFile = f
+		cleanup = dlCleanup
+		contentType = ct
+		break
+	}
+
+	if tmpFile == nil {
 		deleteProgress()
+		switch {
+		case tooLargeCount > 0 && otherFailCount == 0:
+			sendErrorReply(ctx, b, msg, fmt.Sprintf(
+				"Video is too large to send via Telegram (max %d MB). Tried %d quality level(s); all exceeded the limit.",
+				telegramMaxUploadSize/(1024*1024), len(variants),
+			))
+		case otherFailCount > 0 && tooLargeCount == 0:
+			sendErrorReply(ctx, b, msg, fmt.Sprintf(
+				"Failed to download video after trying %d quality level(s). The source may be temporarily unavailable.",
+				len(variants),
+			))
+		default:
+			sendErrorReply(ctx, b, msg, fmt.Sprintf(
+				"Could not send video (%d quality level(s) too large, %d failed to download). Max upload size is %d MB.",
+				tooLargeCount, otherFailCount, telegramMaxUploadSize/(1024*1024),
+			))
+		}
 		return
 	}
-	defer f.Close()
+	defer cleanup()
+
+	ext := extensionForContentType(contentType)
+	if ext == "" {
+		ext = ".mp4"
+	}
 
 	sentMsg, err := b.SendVideo(ctx, &bot.SendVideoParams{
 		ChatID:                msg.Chat.ID,
-		Video:                 &models.InputFileUpload{Filename: "video.mp4", Data: f},
+		Video:                 &models.InputFileUpload{Filename: "video" + ext, Data: tmpFile},
 		Caption:               caption,
 		ParseMode:             models.ParseModeHTML,
 		HasSpoiler:            hasSpoiler,
+		SupportsStreaming:     true,
 		ShowCaptionAboveMedia: true,
 	})
 	if err != nil {
-		log.Printf("SendVideo: %v", err)
-		deleteProgress()
-		sendErrorReply(ctx, b, msg, "Failed to send video.")
-		return
+		log.Printf("SendVideo failed, retrying as document: %v", err)
+		if _, seekErr := tmpFile.Seek(0, 0); seekErr != nil {
+			log.Printf("seek temp file: %v", seekErr)
+			deleteProgress()
+			sendErrorReply(ctx, b, msg, fmt.Sprintf("Telegram rejected the video: %v", err))
+			return
+		}
+		sentMsg, err = b.SendDocument(ctx, &bot.SendDocumentParams{
+			ChatID:    msg.Chat.ID,
+			Document:  &models.InputFileUpload{Filename: "video" + ext, Data: tmpFile},
+			Caption:   caption,
+			ParseMode: models.ParseModeHTML,
+		})
+		if err != nil {
+			log.Printf("SendDocument: %v", err)
+			deleteProgress()
+			sendErrorReply(ctx, b, msg, fmt.Sprintf("Telegram rejected the video (tried as document too): %v", err))
+			return
+		}
 	}
 
 	storeMessageMetadata(msg.Chat.ID, sentMsg.ID, msg.From.ID)

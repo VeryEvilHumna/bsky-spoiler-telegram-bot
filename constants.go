@@ -10,6 +10,9 @@ const (
 	inkbunnyReferrer    = "https://inkbunny.net/"
 	telegramGroupPrefix = "-100"
 	telegramGroupIDBase = 1_000_000_000_000
+
+	telegramMaxPhotoSize  = 10 * 1024 * 1024  // 10 MB — Telegram limit for photos via URL
+	telegramMaxUploadSize = 50 * 1024 * 1024  // 50 MB — Telegram limit for video/document uploads
 )
 
 const welcomeText = `👋 Welcome to Bluesky Spoiler Bot!

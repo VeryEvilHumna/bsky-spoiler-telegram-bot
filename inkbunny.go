@@ -182,6 +182,7 @@ func (c *InkbunnyClient) parseSubmissionResponse(data []byte) (*MediaResult, err
 				result.Video = &MediaVideo{
 					DirectURL:    f.FileURLFull,
 					ThumbnailURL: f.ThumbnailURLMedium,
+					Variants:     []VideoVariant{{URL: f.FileURLFull}},
 				}
 			}
 		} else {

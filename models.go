@@ -26,10 +26,16 @@ type MediaImage struct {
 	NeedsDownload bool
 }
 
+type VideoVariant struct {
+	URL     string
+	Bitrate int
+}
+
 type MediaVideo struct {
 	DirectURL    string
 	ThumbnailURL string
 	Alt          string
+	Variants     []VideoVariant
 }
 
 type PendingEmbed struct {

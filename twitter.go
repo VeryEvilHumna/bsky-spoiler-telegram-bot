@@ -76,6 +76,11 @@ func parseTweetResponse(data []byte) (*MediaResult, error) {
 					ThumbnailURL string `json:"thumbnail_url"`
 					Width        int    `json:"width"`
 					Height       int    `json:"height"`
+					Formats      []struct {
+						URL       string `json:"url"`
+						Bitrate   int    `json:"bitrate"`
+						Container string `json:"container"`
+					} `json:"formats"`
 				} `json:"videos"`
 			} `json:"media"`
 			Author struct {
@@ -112,10 +117,27 @@ func parseTweetResponse(data []byte) (*MediaResult, error) {
 
 	if len(status.Media.Videos) > 0 {
 		v := status.Media.Videos[0]
-		result.Video = &MediaVideo{
+		video := &MediaVideo{
 			DirectURL:    v.URL,
 			ThumbnailURL: v.ThumbnailURL,
 		}
+
+		variants := make([]VideoVariant, 0, len(v.Formats))
+		for _, f := range v.Formats {
+			if f.Container != "mp4" {
+				continue
+			}
+			variants = append(variants, VideoVariant{URL: f.URL, Bitrate: f.Bitrate})
+		}
+		sort.Slice(variants, func(i, j int) bool {
+			return variants[i].Bitrate > variants[j].Bitrate
+		})
+		if len(variants) == 0 {
+			variants = []VideoVariant{{URL: v.URL, Bitrate: 0}}
+		}
+		video.Variants = variants
+
+		result.Video = video
 	}
 
 	for _, p := range status.Media.Photos {
