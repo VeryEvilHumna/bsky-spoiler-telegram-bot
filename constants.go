@@ -17,7 +17,7 @@ const (
 
 const welcomeText = `👋 Welcome to Bluesky Spoiler Bot!
 
-This bot fetches images from Bluesky, Twitter/X, and Inkbunny posts and sends them as spoilered media in Telegram.
+This bot fetches images from Bluesky, Twitter/X, Inkbunny, and Instagram posts and sends them as spoilered media in Telegram.
 
 <b>Usage:</b>
 <code>/spoiler &lt;post URL&gt; [content warning]</code>
@@ -36,6 +36,8 @@ This bot fetches images from Bluesky, Twitter/X, and Inkbunny posts and sends th
 — fxtwitter.com, vxtwitter.com, fixupx.com
 — stupidpenisx.com, cunnyx.com, skibidix.com, girlcockx.com
 — inkbunny.net
+— instagram.com (posts, reels, stories, share links)
+— ddinstagram.com (alternative Instagram domain)
 — at:// URIs (e.g. <code>at://did:plc:xxx/app.bsky.feed.post/...</code>)
 
 <b>Features:</b>

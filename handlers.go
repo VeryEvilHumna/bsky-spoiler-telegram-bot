@@ -175,8 +175,9 @@ Would you like for me to embed that link?
 		})
 		go func() {
 			time.Sleep(promptDeleteDelay)
-			deleteSilently(ctx, b, msg.Chat.ID, promptMsg.ID)
-			pendingEmbeds.Delete(msg.ID)
+			if _, loaded := pendingEmbeds.LoadAndDelete(msg.ID); loaded {
+				deleteSilently(ctx, b, msg.Chat.ID, promptMsg.ID)
+			}
 		}()
 		return
 	}
@@ -226,7 +227,7 @@ func processMediaURL(ctx context.Context, b *bot.Bot, msg *models.Message, arg s
 		}
 	}
 	if err != nil {
-		sendErrorReply(ctx, b, msg, "Please provide a valid post URL (supports bsky.app, x.com, twitter.com, fxtwitter.com, vxtwitter.com, fixupx.com, inkbunny.net, and at:// URIs).")
+		sendErrorReply(ctx, b, msg, "Please provide a valid post URL (supports bsky.app, x.com, twitter.com, fxtwitter.com, vxtwitter.com, fixupx.com, inkbunny.net, instagram.com, and at:// URIs).")
 		return
 	}
 
@@ -262,6 +263,13 @@ func processMediaURL(ctx context.Context, b *bot.Bot, msg *models.Message, arg s
 		if err != nil {
 			log.Printf("fetch tweet: %v", err)
 			sendErrorReply(ctx, b, msg, "Failed to fetch tweet.")
+			return
+		}
+	} else if parsed.Source == "instagram" {
+		mediaResult, err = FetchInstagramMedia(ctx, parsed.OriginalURL)
+		if err != nil {
+			log.Printf("fetch instagram: %v", err)
+			sendErrorReply(ctx, b, msg, igUserMessage(err))
 			return
 		}
 	} else {
@@ -753,6 +761,11 @@ func handleEmbedCallback(ctx context.Context, b *bot.Bot, update *models.Update)
 		ChatID:    promptChatID,
 		MessageID: promptMsgID,
 	})
+
+	// Delete original link message if clicker is the sender and message was link-only
+	if cb.From.ID == embed.UserID && strings.TrimSpace(embed.MsgText) == embed.URL {
+		deleteSilently(ctx, b, embed.ChatID, embed.OriginalMsgID)
+	}
 
 	senderMsg := &models.Message{
 		ID:   embed.OriginalMsgID,

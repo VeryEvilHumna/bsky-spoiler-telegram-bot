@@ -38,6 +38,9 @@ func main() {
 	}
 	inkbunnyClient := NewInkbunnyClient(inkbunnyUsername, inkbunnyPassword)
 
+	igCookies = loadIGCookieJar(os.Getenv("INSTAGRAM_COOKIES_FILE"))
+	defer igCookies.Save()
+
 	b, err := bot.New(token, bot.WithAllowedUpdates(bot.AllowedUpdates{models.AllowedUpdateMessage, models.AllowedUpdateMessageReaction, models.AllowedUpdateCallbackQuery}))
 	if err != nil {
 		log.Fatalf("create bot: %v", err)
