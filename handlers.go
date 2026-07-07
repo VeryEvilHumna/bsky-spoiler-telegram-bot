@@ -762,10 +762,7 @@ func handleEmbedCallback(ctx context.Context, b *bot.Bot, update *models.Update)
 		MessageID: promptMsgID,
 	})
 
-	// Delete original link message if clicker is the sender and message was link-only
-	if cb.From.ID == embed.UserID && strings.TrimSpace(embed.MsgText) == embed.URL {
-		deleteSilently(ctx, b, embed.ChatID, embed.OriginalMsgID)
-	}
+	shouldDelete := cb.From.ID == embed.UserID && strings.TrimSpace(embed.MsgText) == embed.URL
 
 	senderMsg := &models.Message{
 		ID:   embed.OriginalMsgID,
@@ -779,7 +776,7 @@ func handleEmbedCallback(ctx context.Context, b *bot.Bot, update *models.Update)
 
 	bskyClient := NewBlueskyClient()
 	inkbunnyClient := NewInkbunnyClient(os.Getenv("INKBUNNY_USERNAME"), os.Getenv("INKBUNNY_PASSWORD"))
-	processMediaURL(ctx, b, senderMsg, embed.URL, hasSpoiler, bskyClient, inkbunnyClient, nil, false, embed.OriginalMsgID)
+	processMediaURL(ctx, b, senderMsg, embed.URL, hasSpoiler, bskyClient, inkbunnyClient, nil, shouldDelete, embed.OriginalMsgID)
 }
 
 func handleMessageReaction(ctx context.Context, b *bot.Bot, reaction *models.MessageReactionUpdated) {
