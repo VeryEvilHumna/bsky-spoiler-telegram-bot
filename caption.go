@@ -79,17 +79,21 @@ func buildCaption(d CaptionData) string {
 
 	text := d.PostText
 	if text != "" {
-		label := "Show post text (tap)"
-		if d.Source == "inkbunny" {
-			label = "Show description (tap)"
-		}
 		if !d.TextIsHTML {
 			text = html.EscapeString(text)
 		}
-		body += fmt.Sprintf(
-			"\n<blockquote expandable>⠀\n⠀  <b>%s</b>\n⠀ \n\n%s</blockquote>",
-			label, text,
-		)
+		if d.HasSpoiler {
+			label := "Show post text (tap)"
+			if d.Source == "inkbunny" {
+				label = "Show description (tap)"
+			}
+			body += fmt.Sprintf(
+				"\n<blockquote expandable>⠀\n⠀  <b>%s</b>\n⠀ \n\n%s</blockquote>",
+				label, text,
+			)
+		} else {
+			body += fmt.Sprintf("\n<blockquote expandable>%s</blockquote>", text)
+		}
 	}
 
 	return body
