@@ -13,7 +13,7 @@ import (
 	"sync"
 )
 
-var inkbunnyURLRegex = regexp.MustCompile(`https?://inkbunny\.net/s/(\d+)`)
+var inkbunnyURLRegex = regexp.MustCompile(`https?://inkbunny\.net/s/(\d+)(?:\?[^#\s]*)?(?:#[^\s]*)?`)
 
 type InkbunnyClient struct {
 	username string

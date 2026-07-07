@@ -17,6 +17,9 @@ func TestParseTwitterURL(t *testing.T) {
 		{"with video suffix", "https://x.com/multikigu/status/2071655663516668318/video/1", "2071655663516668318", false},
 		{"with photo suffix", "https://x.com/Rony39948830/status/2072041604622303428/photo/1", "2072041604622303428", false},
 		{"http", "http://x.com/user/status/123", "123", false},
+		{"with query params", "https://x.com/user/status/123?s=20", "123", false},
+		{"with query params and text", "https://x.com/user/status/123?s=20 extra text", "123", false},
+		{"with fragment", "https://x.com/user/status/123#section", "123", false},
 		{"invalid", "https://bsky.app/profile/user/post/abc", "", true},
 		{"empty", "", "", true},
 	}
@@ -34,6 +37,31 @@ func TestParseTwitterURL(t *testing.T) {
 			}
 			if got.Source != "twitter" {
 				t.Errorf("Source = %q, want twitter", got.Source)
+			}
+		})
+	}
+}
+
+func TestParseTwitterURLIncludesQueryParams(t *testing.T) {
+	tests := []struct {
+		name       string
+		url        string
+		wantOrigURL string
+	}{
+		{"no query", "https://x.com/user/status/123", "https://x.com/user/status/123"},
+		{"with query", "https://x.com/user/status/123?s=20", "https://x.com/user/status/123?s=20"},
+		{"with fragment", "https://x.com/user/status/123#sec", "https://x.com/user/status/123#sec"},
+		{"with query and fragment", "https://x.com/user/status/123?s=20#sec", "https://x.com/user/status/123?s=20#sec"},
+		{"with query and trailing text", "https://x.com/user/status/123?s=20 extra", "https://x.com/user/status/123?s=20"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseTwitterURL(tt.url)
+			if err != nil {
+				t.Fatalf("ParseTwitterURL(%q) error: %v", tt.url, err)
+			}
+			if got.OriginalURL != tt.wantOrigURL {
+				t.Errorf("OriginalURL = %q, want %q", got.OriginalURL, tt.wantOrigURL)
 			}
 		})
 	}

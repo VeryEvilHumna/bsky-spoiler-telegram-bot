@@ -11,7 +11,7 @@ import (
 	"github.com/bluesky-social/indigo/xrpc"
 )
 
-var bskyURLRegex = regexp.MustCompile(`https?://(?:bsky|fxbsky|vxbsky|bskye|bskyx|bsyy)\.app/profile/([a-zA-Z0-9._:%-]+)/post/([a-zA-Z0-9]+)`)
+var bskyURLRegex = regexp.MustCompile(`https?://(?:bsky|fxbsky|vxbsky|bskye|bskyx|bsyy)\.app/profile/([a-zA-Z0-9._:%-]+)/post/([a-zA-Z0-9]+)(?:\?[^#\s]*)?(?:#[^\s]*)?`)
 var atURIRegex = regexp.MustCompile(`at://(did:[a-z]+:[a-zA-Z0-9._:%-]+)/app\.bsky\.feed\.post/([a-zA-Z0-9]+)`)
 
 type BlueskyClient struct {
