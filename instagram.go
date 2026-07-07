@@ -19,7 +19,9 @@ const (
 	igUserAgent = "Instagram 275.0.0.27.98 Android (33/13; 280dpi; 720x1423; Xiaomi; Redmi 7; onclite; qcom; en_US; 458229237)"
 	igAppID     = "936619743392459"
 	// igGenericUA is a generic modern Chrome user-agent used for HTML embed
+	// and GraphQL requests.
 	igGenericUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+	// igGraphQLDocID is the doc_id for PolarisPostActionLoadPostQueryQuery.
 	igGraphQLDocID = "8845758582119845"
 )
 
@@ -35,8 +37,10 @@ var (
 	ogVideoRegex       = regexp.MustCompile(`<meta\s+property="og:video(?:[^"]*)"\s+content="([^"]+)"`)
 	ogDescriptionRegex = regexp.MustCompile(`<meta\s+property="og:description"\s+content="([^"]+)"`)
 
+	// embed contextJSON regex — parse pattern for the embed page.
 	igEmbedInitRegex = regexp.MustCompile(`"init",\[\],\[(.*?)\]\],`)
 
+	// GraphQL HTML-scraping regexes (getObjectFromEntries pattern).
 	igRESiteData          = regexp.MustCompile(`\["SiteData",.*?,({.*?}),\d+\]`)
 	igREPolarisSiteData   = regexp.MustCompile(`\["PolarisSiteData",.*?,({.*?}),\d+\]`)
 	igREDGWWebConfig      = regexp.MustCompile(`\["DGWWebConfig",.*?,({.*?}),\d+\]`)
@@ -48,6 +52,7 @@ var (
 	igREJazoest           = regexp.MustCompile(`jazoest=(\d+)`)
 )
 
+// igMobileHeaders returns the full mobile API header set.
 // Pass cookie="" for anonymous requests.
 func igMobileHeaders(cookie string) http.Header {
 	h := http.Header{
@@ -504,6 +509,7 @@ func fetchIGEmbed(ctx context.Context, shortcode, cookie string) (*MediaResult, 
 	data := string(body)
 	result := &MediaResult{}
 
+	// Try the richer contextJSON parse first; fall back to og:meta.
 	if res, ok := parseIGEmbedContextJSON([]byte(data)); ok && res != nil {
 		return res, nil
 	}
@@ -538,6 +544,7 @@ func fetchIGEmbed(ctx context.Context, shortcode, cookie string) (*MediaResult, 
 }
 
 // parseIGEmbedContextJSON parses the embed page's inline `"init",[],[...]`
+// JSON blob. Returns (result, true) on success.
 func parseIGEmbedContextJSON(body []byte) (*MediaResult, bool) {
 	m := igEmbedInitRegex.FindSubmatch(body)
 	if m == nil {
@@ -630,6 +637,7 @@ func igCleanCaption(s string) string {
 
 // fetchIGGraphQL fetches the post HTML, scrapes anti-bot tokens (LSD, csrf,
 // device IDs), and POSTs to /graphql/query for the post data. This is the
+// most reliable logged-out strategy.
 func fetchIGGraphQL(ctx context.Context, shortcode, cookie string) (*MediaResult, error) {
 	pageURL := fmt.Sprintf("https://www.instagram.com/p/%s/", shortcode)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
@@ -897,6 +905,7 @@ func igExtractGQLParams(body []byte, existingCookie string) (igGQLParams, error)
 }
 
 // parseIGGraphQLResponse extracts the post media from a /graphql/query
+// response.
 func parseIGGraphQLResponse(body []byte) (*MediaResult, error) {
 	var resp struct {
 		Data struct {
@@ -927,6 +936,7 @@ func parseIGGraphQLResponse(body []byte) (*MediaResult, error) {
 				hasVideo = true
 				// GraphQL gives a single video_url per sidecar item; no
 				// explicit width/height, so we can't pick "largest"; we
+				// take the first video.
 				if bestVideoURL == "" {
 					bestVideoURL = node.VideoURL
 				}

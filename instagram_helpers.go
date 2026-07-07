@@ -20,6 +20,7 @@ func randBase64URL(n int) string {
 }
 
 // randString returns a random alphanumeric string of length n
+// (used for __s params generated as
 // "::" + Math.random().toString(36).substring(2).replace(/\d/g, '').slice(0, 6)).
 func randString(n int) string {
 	const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
