@@ -774,9 +774,14 @@ func handleEmbedCallback(ctx context.Context, b *bot.Bot, update *models.Update)
 		},
 	}
 
+	replyMsgID := embed.OriginalMsgID
+	if shouldDelete {
+		replyMsgID = 0
+	}
+
 	bskyClient := NewBlueskyClient()
 	inkbunnyClient := NewInkbunnyClient(os.Getenv("INKBUNNY_USERNAME"), os.Getenv("INKBUNNY_PASSWORD"))
-	processMediaURL(ctx, b, senderMsg, embed.URL, hasSpoiler, bskyClient, inkbunnyClient, nil, shouldDelete, embed.OriginalMsgID)
+	processMediaURL(ctx, b, senderMsg, embed.URL, hasSpoiler, bskyClient, inkbunnyClient, nil, shouldDelete, replyMsgID)
 }
 
 func handleMessageReaction(ctx context.Context, b *bot.Bot, reaction *models.MessageReactionUpdated) {
