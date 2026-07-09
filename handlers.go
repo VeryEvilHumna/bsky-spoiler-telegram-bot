@@ -145,7 +145,7 @@ func handlePlainMessage(ctx context.Context, b *bot.Bot, msg *models.Message, bs
 			Text: fmt.Sprintf(`
 Would you like for me to embed that link?
 
-🫧 This message would dissapear in %d seconds`, promptDeleteDelay/time.Second),
+🫧 This message would disappear in %d seconds`, promptDeleteDelay/time.Second),
 			ParseMode: models.ParseModeHTML,
 			ReplyParameters: &models.ReplyParameters{
 				MessageID: msg.ID,
@@ -164,6 +164,11 @@ Would you like for me to embed that link?
 			log.Printf("sending embed prompt: %v", sendErr)
 			return
 		}
+		var origFirstName, origUsername string
+		if msg.ReplyToMessage != nil && msg.ReplyToMessage.From != nil {
+			origFirstName = msg.ReplyToMessage.From.FirstName
+			origUsername = msg.ReplyToMessage.From.Username
+		}
 		pendingEmbeds.Store(msg.ID, &PendingEmbed{
 			URL:           parsed.OriginalURL,
 			ChatID:        msg.Chat.ID,
@@ -172,6 +177,8 @@ Would you like for me to embed that link?
 			UserFirstName: msg.From.FirstName,
 			UserUsername:  msg.From.Username,
 			MsgText:       msg.Text,
+			OrigFirstName: origFirstName,
+			OrigUsername:  origUsername,
 		})
 		go func() {
 			time.Sleep(promptDeleteDelay)
@@ -762,7 +769,7 @@ func handleEmbedCallback(ctx context.Context, b *bot.Bot, update *models.Update)
 		MessageID: promptMsgID,
 	})
 
-	shouldDelete := cb.From.ID == embed.UserID && strings.TrimSpace(embed.MsgText) == embed.URL
+	shouldDelete := cb.From.ID == embed.UserID && strings.HasPrefix(strings.TrimSpace(embed.MsgText), strings.TrimSpace(embed.URL))
 
 	senderMsg := &models.Message{
 		ID:   embed.OriginalMsgID,
@@ -779,9 +786,17 @@ func handleEmbedCallback(ctx context.Context, b *bot.Bot, update *models.Update)
 		replyMsgID = 0
 	}
 
+	var origUser *models.User
+	if embed.OrigFirstName != "" || embed.OrigUsername != "" {
+		origUser = &models.User{
+			FirstName: embed.OrigFirstName,
+			Username:  embed.OrigUsername,
+		}
+	}
+
 	bskyClient := NewBlueskyClient()
 	inkbunnyClient := NewInkbunnyClient(os.Getenv("INKBUNNY_USERNAME"), os.Getenv("INKBUNNY_PASSWORD"))
-	processMediaURL(ctx, b, senderMsg, embed.URL, hasSpoiler, bskyClient, inkbunnyClient, nil, shouldDelete, replyMsgID)
+	processMediaURL(ctx, b, senderMsg, embed.MsgText, hasSpoiler, bskyClient, inkbunnyClient, origUser, shouldDelete, replyMsgID)
 }
 
 func handleMessageReaction(ctx context.Context, b *bot.Bot, reaction *models.MessageReactionUpdated) {

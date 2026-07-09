@@ -46,6 +46,8 @@ type PendingEmbed struct {
 	UserFirstName string
 	UserUsername  string
 	MsgText       string
+	OrigFirstName string
+	OrigUsername  string
 }
 
 type MediaResult struct {
