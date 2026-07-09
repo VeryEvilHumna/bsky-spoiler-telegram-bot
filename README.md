@@ -4,7 +4,7 @@ Hosted version available: [t.me/bskyWithSpoilerBot](https://t.me/bskyWithSpoiler
 
 ## Description
 
-A Telegram bot that gets images/video from Bluesky, Twitter/X, and Inkbunny posts and sends them in Telegram chats, optionally blurred as spoilers.
+A Telegram bot that gets images/video from Bluesky, Twitter/X, Inkbunny, and Instagram posts and sends them in Telegram chats, optionally blurred as spoilers.
 
 Just send a message with a supported link and the bot will ask if you want to embed it — no commands needed. You can also use `/spoiler` or `/nospoiler` for more control.
 
@@ -17,12 +17,14 @@ Just send a message with a supported link and the bot will ask if you want to em
   - **Bluesky** — works with "private" profiles, no auth required (public API)
   - **Twitter/X** — via [fxtwitter](https://github.com/FixedDev/FxTwitter) API, no API key needed
   - **Inkbunny** — with BB code to HTML conversion for descriptions
+  - **Instagram** — posts, reels, stories, carousels, share links; requires cookie auth
 - Supports images and video posts
 - Supports multiple images in the post
 - Supported domains:
   - Bluesky: bsky.app, fxbsky.app, vxbsky.app, bskye.app, bskyx.app, bsyy.app
   - Twitter/X: x.com, twitter.com, fxtwitter.com, vxtwitter.com, fixupx.com, stupidpenisx.com, cunnyx.com, skibidix.com, girlcockx.com
   - Inkbunny: inkbunny.net
+  - Instagram: instagram.com, ddinstagram.com
   - AT URIs: `at://did:plc:xxx/app.bsky.feed.post/...`
 - Automatic cleanup:
   - Command messages are deleted after processing
@@ -41,6 +43,7 @@ Just send a message with a supported link and the bot will ask if you want to em
 
 - Go 1.25.7 or later, may work on older version, but I haven't tested it tbh
 - A Telegram bot token (obtain from [@BotFather](https://t.me/botfather))
+- Instagram cookies JSON file (for Instagram support — export via a browser extension like Cookie Editor)
 
 ## Installation
 
@@ -69,6 +72,9 @@ Just send a message with a supported link and the bot will ask if you want to em
 
    ```env
    TELEGRAM_BOT_TOKEN=your_bot_token_here
+   # Instagram cookies JSON file (required for Instagram support)
+   # Export from instagram.com via a browser extension (e.g. Cookie Editor) as a JSON array
+   INSTAGRAM_COOKIES_FILE=
    ```
 
 2. Run the bot:
@@ -106,6 +112,7 @@ Examples:
 /spoiler https://x.com/spicy_mochi/status/2072719566233284830 body horror
 /nospoiler https://inkbunny.net/s/525390
 /nospoiler https://inkbunny.net/s/525390 nudity
+/spoiler https://www.instagram.com/p/abc123/
 ```
 
 The bot will:
