@@ -13,6 +13,7 @@ Just send a message with a supported link and the bot will ask if you want to em
 - **Auto-embed prompt** — just send a message with a supported link and the bot silently replies with Spoiler/No Spoiler buttons (no command needed)
 - `/spoiler` — sends media blurred until tapped
 - `/nospoiler` — sends media unblurred; post text still collapsed
+- `/delete` (or `/d`) — delete your own bot-sent posts by replying to them (within 48 hours)
 - Multi-platform support:
   - **Bluesky** — works with "private" profiles, no auth required (public API)
   - **Twitter/X** — via [fxtwitter](https://github.com/FixedDev/FxTwitter) API, no API key needed
@@ -103,6 +104,7 @@ The prompt auto-deletes after 30 seconds. If you click the button on your own li
 ```
 /spoiler <post URL> [content warning]
 /nospoiler <post URL> [content warning]
+/delete
 ```
 
 Examples:
@@ -123,6 +125,10 @@ The bot will:
 - Delete the original command message (requires permission to delete messages in chat)
 - If sent without a URL, ask for the link in a follow-up message — then process it and clean up all related messages automatically (requires access to all messages)
 - If you reply with `/spoiler` or `/nospoiler` to your own message that starts with a link, the original message is also deleted
+
+### Deleting posts
+
+Reply to any bot-sent message with `/delete` or `/d` to remove it. You can only delete your own posts, and only within 48 hours of when they were sent. The delete command message is also cleaned up automatically.
 
 ### Reactions
 
