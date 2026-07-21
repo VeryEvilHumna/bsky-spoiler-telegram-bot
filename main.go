@@ -58,6 +58,14 @@ func main() {
 		handleMediaCommand(ctx, b, update.Message, bskyClient, inkbunnyClient, false)
 	})
 
+	b.RegisterHandler(bot.HandlerTypeMessageText, "/delete", bot.MatchTypeExact, func(ctx context.Context, b *bot.Bot, update *models.Update) {
+		handleDeleteCommand(ctx, b, update.Message)
+	})
+
+	b.RegisterHandler(bot.HandlerTypeMessageText, "/d", bot.MatchTypeExact, func(ctx context.Context, b *bot.Bot, update *models.Update) {
+		handleDeleteCommand(ctx, b, update.Message)
+	})
+
 	b.RegisterHandlerMatchFunc(func(update *models.Update) bool {
 		return update.MessageReaction != nil
 	}, func(ctx context.Context, b *bot.Bot, update *models.Update) {

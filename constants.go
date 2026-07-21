@@ -13,6 +13,8 @@ const (
 
 	telegramMaxPhotoSize  = 10 * 1024 * 1024  // 10 MB — Telegram limit for photos via URL
 	telegramMaxUploadSize = 50 * 1024 * 1024  // 50 MB — Telegram limit for video/document uploads
+
+	deleteTimeLimit = 48 * time.Hour
 )
 
 const welcomeText = `👋 Welcome to Bluesky Spoiler Bot!
@@ -22,6 +24,7 @@ This bot fetches images from Bluesky, Twitter/X, Inkbunny, and Instagram posts a
 <b>Usage:</b>
 <code>/spoiler &lt;post URL&gt; [content warning]</code>
 <code>/nospoiler &lt;post URL&gt; [content warning]</code>
+<code>/delete</code> (reply to your own bot message to delete it, within 48h)
 
 <b>Examples:</b>
 <code>/spoiler https://bsky.app/profile/username.bsky.social/post/abc123</code>

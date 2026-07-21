@@ -62,6 +62,45 @@ func handleStartCommand(ctx context.Context, b *bot.Bot, msg *models.Message) {
 	}
 }
 
+func handleDeleteCommand(ctx context.Context, b *bot.Bot, msg *models.Message) {
+	if msg.ReplyToMessage == nil {
+		sendErrorReply(ctx, b, msg, "Reply to a bot message you want to delete with /delete")
+		return
+	}
+
+	repliedMsgID := msg.ReplyToMessage.ID
+	chatID := msg.Chat.ID
+
+	metadata := getMessageMetadata(chatID, repliedMsgID)
+	if metadata == nil {
+		sendErrorReply(ctx, b, msg, "That message wasn't sent by this bot or has no ownership record.")
+		return
+	}
+
+	if metadata.UserID != msg.From.ID {
+		sendErrorReply(ctx, b, msg, "You can only delete your own posts.")
+		return
+	}
+
+	sentAt := time.Unix(int64(msg.ReplyToMessage.Date), 0)
+	if time.Since(sentAt) > deleteTimeLimit {
+		errMsg, sendErr := b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Posts can only be deleted within 48 hours of being sent.",
+			ReplyParameters: &models.ReplyParameters{MessageID: msg.ID},
+		})
+		if sendErr == nil {
+			go func() {
+				time.Sleep(autoDeleteDelay)
+				deleteSilently(ctx, b, chatID, errMsg.ID, msg.ID)
+			}()
+		}
+		return
+	}
+
+	deleteSilently(ctx, b, chatID, repliedMsgID, msg.ID)
+}
+
 func parseCommandArg(text string) string {
 	arg := ""
 	if idx := strings.IndexByte(text, ' '); idx >= 0 {
